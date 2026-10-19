@@ -4,35 +4,36 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>영업부(시흥) 스케줄관리</title>
-<link rel="preconnect" href="https://script.google.com" crossorigin>
-<link rel="preconnect" href="https://script.googleusercontent.com" crossorigin>
-<link rel="dns-prefetch" href="https://script.google.com">
+<link rel="preconnect" href="https://iwfiilgjiqkdsuybqwwk.supabase.co" crossorigin>
 <script>
 // ══════════════════════════════════════════════════════════
-//  선행 요청 (prefetch)
-//  GAS 호출 1회는 수백ms~수초. HTML/CSS가 파싱되기를 기다리지 않고
-//  첫 화면에 필요한 조회를 여기서 곧바로 동시에 쏴 둔다.
-//  아래 응답은 api()가 그대로 받아 쓴다.
+//  설정
 // ══════════════════════════════════════════════════════════
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbwl-hvK6QffGot9hRIL_A_3AnT1b0p_lKt2tk6X-EsuJvjBdI5Oc8M_pubrlpPthy2X/exec'; // ← Apps Script 웹앱 배포 후 발급되는 URL을 여기에 넣으세요 (…/exec)
+// Supabase 대시보드 → Settings → API
+var SUPABASE_URL = 'https://iwfiilgjiqkdsuybqwwk.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_q3SLb7fToGXt9J4o7tkYOw_QArw7mQ9';  // publishable(=anon) 키. 공개되어도 되는 키입니다.
+
+// 끝의 슬래시나 /rest/v1 을 붙여 넣어도 동작하도록 정리
+SUPABASE_URL = String(SUPABASE_URL).replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
+
+// ── 선행 요청 ───────────────────────────────────────────────
+// 첫 화면에 필요한 모든 것(직원·종류·연차 3개월·공지·권한)을 한 번에 받는다.
+// HTML/CSS 파싱을 기다리지 않고 여기서 바로 쏜다.
 window.__PRE = {};
 (function(){
-  if(!GAS_URL || !window.fetch) return;
-  function pre(action, data){
-    var body = JSON.stringify(Object.assign({action:action}, data||{}));
-    window.__PRE[action+'|'+JSON.stringify(data||{})] =
-      fetch(GAS_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:body})
-        .then(function(r){ return r.json(); })
-        .catch(function(err){ return {ok:false, netError:true, error:'서버 연결 실패: '+err.message}; });
-  }
+  if(!SUPABASE_URL || !SUPABASE_KEY || !window.fetch) return;
+  var tok = '';
+  try{ tok = localStorage.getItem('sch_token') || ''; }catch(e){}
   var d = new Date();
   var ym = d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1);
-  pre('getEmployees', {});
-  pre('getAnnuals', {ym:ym});
-  pre('getCalNotice', {});
-  var pin = '';
-  try{ pin = localStorage.getItem('sch_pin') || ''; }catch(e){}
-  if(pin) pre('checkPin', {pin:pin});
+  var args = {p_ym:ym, p_token:tok||null};
+  var h = {apikey:SUPABASE_KEY, 'Content-Type':'application/json'};
+  // 신형 publishable 키는 JWT가 아니라 Bearer로 보내면 안 된다. 구형 anon(eyJ…)만 보낸다.
+  if(/^eyJ/.test(SUPABASE_KEY)) h.Authorization = 'Bearer ' + SUPABASE_KEY;
+  window.__PRE['rpc:get_bootstrap|'+JSON.stringify(args)] =
+    fetch(SUPABASE_URL+'/rest/v1/rpc/get_bootstrap', {method:'POST', headers:h, body:JSON.stringify(args)})
+      .then(function(r){ return r.text().then(function(t){ return {status:r.status, text:t}; }); })
+      .catch(function(e){ return {status:0, err:'서버 연결 실패: '+e.message}; });
 })();
 </script>
 <style>
@@ -50,6 +51,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tbtn:hover{color:var(--tp);}
 .tbtn.active{color:var(--ac);border-bottom-color:var(--ac);}
 .main{padding:24px;max-width:1100px;margin:0 auto;}
+.boot-err{display:none;align-items:flex-start;gap:8px;margin:0 24px 0;max-width:1100px;padding:11px 14px;border-radius:10px;font-size:13px;background:var(--dgl);color:var(--dg);border:1px solid #F7C1C1;}
 .sync-ind{position:fixed;right:14px;bottom:14px;z-index:200;background:var(--s);border:1px solid var(--b);border-radius:20px;padding:5px 12px;font-size:11px;color:var(--tm);box-shadow:0 2px 8px rgba(0,0,0,.09);opacity:0;transform:translateY(6px);transition:opacity .18s,transform .18s;pointer-events:none;}
 .sync-ind.on{opacity:1;transform:translateY(0);}
 .pg{display:none;}.pg.active{display:block;}
@@ -150,6 +152,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <button class="tbtn" data-tab="log">🕓 변경이력</button>
 </div>
 
+<div id="boot-err" class="boot-err"></div>
 <div class="main">
 
   <!-- ── 연차 달력 ── -->
@@ -284,26 +287,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 </div>
 
 <script>
-// ══════════════════════════════════════════════════════════
-//  설정  (GAS_URL은 <head>의 선행 요청 스크립트에 있습니다)
-// ══════════════════════════════════════════════════════════
 var EMP_COLORS = ['#3B6FE8','#1D9E75','#BA7517','#534AB7','#A32D2D','#0891B2','#C2410C','#7C3AED','#65A30D','#DB2777'];
 
-var ATYPES = [
-  {k:'연차', l:'연차 (종일)', c:'cc-an'},
-  {k:'오전반차', l:'오전반차', c:'cc-ham'},
-  {k:'오후반차', l:'오후반차', c:'cc-hpm'},
-  {k:'0.75차(12시퇴근)', l:'0.75차(12시퇴근)', c:'cc-h75am'},
-  {k:'0.75차(17시출근)', l:'0.75차(17시출근)', c:'cc-h75pm'},
-  {k:'오전반반차', l:'오전반반차', c:'cc-hham'},
-  {k:'오후반반차', l:'오후반반차', c:'cc-hhpm'},
-  {k:'휴일근무', l:'휴일근무', c:'cc-hw', weekendOnly:true},
-  {k:'공가(예비군)', l:'공가(예비군)', c:'cc-gg'},
-  {k:'조퇴', l:'조퇴', c:'cc-jt'},
-  {k:'지각', l:'지각', c:'cc-jg'},
-  {k:'병가', l:'병가', c:'cc-bg'},
-  {k:'무단결근', l:'무단결근', c:'cc-mg'}
-];
 
 var KR_HOLIDAYS = {
   '2024-01-01':1,'2024-02-09':1,'2024-02-10':1,'2024-02-11':1,'2024-02-12':1,
@@ -343,24 +328,19 @@ var KR_HOLIDAYS = {
 function isHoliday(ds){ return !!KR_HOLIDAYS[ds]; }
 function isWeekend(ds){ var dow=dateOf(ds).getDay(); return dow===0||dow===6; }
 var HOL_NAMES = {'01-01':'신정','03-01':'삼일절','05-05':'어린이날','06-06':'현충일','07-17':'제헌절','08-15':'광복절','10-03':'개천절','10-09':'한글날','12-25':'성탄절'};
-var ATYPE_MAP = {};
-ATYPES.forEach(function(t){ ATYPE_MAP[t.k] = t; });
 
 // ══════════════════════════════════════════════════════════
-//  API 레이어 — 캐시 / 중복요청 제거 / 병렬 / 타임아웃
-//  GAS(Apps Script) 호출은 1회당 수백ms~수초가 걸린다.
-//  ① 직렬 호출을 없애 전부 동시에 쏘고
-//  ② 같은 요청은 합치고
-//  ③ 이전 응답을 캐시해 화면을 먼저 그린 뒤 뒤에서 갱신한다.
+//  Supabase 접근 계층
+//  · 조회는 PostgREST 직접, 쓰기는 PIN을 검증하는 RPC를 통해서만
+//  · 첫 화면은 get_bootstrap 한 번으로 (직원·종류·연차 3개월·공지·권한)
+//  · 이전 응답을 캐시해 먼저 그리고 뒤에서 갱신한다
 // ══════════════════════════════════════════════════════════
-var CACHE_NS = 'sch_cache_v1:';
+var CACHE_NS = 'sch_cache_v2:';
 var CACHE_MEM = {};
 var INFLIGHT = {};
-var READ_ACTIONS = {getEmployees:1, getAnnuals:1, getCalNotice:1, getChangeLogs:1, checkPin:1};
-var API_TIMEOUT = 20000;   // GAS 무응답 시 무한 대기 방지
-var SWR_TTL = 15000;       // 이 시간 안에 받은 캐시는 재요청 생략
-
-function ckey(action, data){ return action+'|'+JSON.stringify(data||{}); }
+var API_TIMEOUT = 15000;
+var SWR_TTL = 10000;      // 이 시간 안에 받은 캐시는 재요청 생략
+var POLL_MS  = 30000;     // 화면이 보이는 동안 이 간격으로 갱신
 
 function cacheGet(key){
   if(CACHE_MEM[key]) return CACHE_MEM[key];
@@ -392,125 +372,225 @@ function setPending(d){
   if(el) el.className = 'sync-ind'+(PENDING>0 ? ' on' : '');
 }
 
-function rawApi(action, data){
-  if(!GAS_URL){
-    alert('GAS_URL이 설정되지 않았습니다. index.html 상단의 GAS_URL 값을 Apps Script 배포 URL로 채워주세요.');
-    return Promise.resolve({ok:false, error:'GAS_URL 미설정'});
-  }
-  // <head>에서 미리 쏴둔 요청이 있으면 그대로 재사용 (스크립트 파싱 대기 0)
-  var key = ckey(action, data);
-  if(window.__PRE && window.__PRE[key]){
-    var pre = window.__PRE[key];
-    delete window.__PRE[key];
-    return pre;
+// 신형 publishable 키(sb_publishable_…)는 JWT가 아니므로 Bearer로 보내면
+// 인증 계층이 JWT 파싱에 실패한다. 구형 anon 키(eyJ…)만 Bearer를 같이 보낸다.
+function sbHeaders(){
+  var h = { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' };
+  if(/^eyJ/.test(SUPABASE_KEY)) h.Authorization = 'Bearer ' + SUPABASE_KEY;
+  return h;
+}
+
+function sbRaw(path, opts){
+  opts = opts || {};
+  if(!SUPABASE_URL || !SUPABASE_KEY){
+    return Promise.resolve({status:0, err:'SUPABASE_URL / SUPABASE_KEY가 설정되지 않았습니다.'});
   }
   var ctl = (typeof AbortController!=='undefined') ? new AbortController() : null;
   var timer = ctl ? setTimeout(function(){ try{ ctl.abort(); }catch(e){} }, API_TIMEOUT) : 0;
-  return fetch(GAS_URL, {
-    method:'POST',
-    headers:{'Content-Type':'text/plain;charset=utf-8'},
-    body: JSON.stringify(Object.assign({action:action}, data||{})),
+  return fetch(SUPABASE_URL + '/rest/v1/' + path, {
+    method: opts.method || 'GET',
+    headers: sbHeaders(),
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     signal: ctl ? ctl.signal : undefined
-  }).then(function(r){ return r.json(); })
-    .then(function(j){ if(timer) clearTimeout(timer); return j; })
-    .catch(function(e){
-      if(timer) clearTimeout(timer);
-      return {ok:false, netError:true,
-        error:(e && e.name==='AbortError') ? '서버 응답이 너무 느립니다 (시간 초과)' : '서버 연결 실패: '+e.message};
-    });
+  }).then(function(r){
+    return r.text().then(function(t){ if(timer) clearTimeout(timer); return {status:r.status, text:t}; });
+  }).catch(function(e){
+    if(timer) clearTimeout(timer);
+    return {status:0, err:(e && e.name==='AbortError') ? '서버 응답이 너무 느립니다 (시간 초과)'
+                                                       : '서버 연결 실패: '+e.message};
+  });
 }
 
-// 동일한 조회 요청이 이미 날아가 있으면 그 결과를 같이 쓴다.
-function api(action, data){
-  var key = ckey(action, data);
-  if(READ_ACTIONS[action] && INFLIGHT[key]) return INFLIGHT[key];
+// 응답을 {ok, data, error} 한 가지 모양으로 통일
+function norm(res){
+  if(!res || res.status === 0){
+    return {ok:false, netError:true, error:(res && res.err) || '서버 연결 실패'};
+  }
+  var data = null;
+  try{ data = res.text ? JSON.parse(res.text) : null; }catch(e){}
+  if(res.status >= 200 && res.status < 300) return {ok:true, data:data};
+
+  var msg = (data && (data.message || data.hint)) || ('요청 실패 (HTTP '+res.status+')');
+  return {
+    ok:false, status:res.status, error:msg,
+    // RPC가 돌려주는 안내문으로 토큰 만료를 구분한다
+    authExpired: /로그인이 필요합니다/.test(msg),
+    schemaMissing: res.status===404 || /Could not find|schema cache/i.test(msg)
+  };
+}
+
+function rpc(fn, args){
+  // <head>에서 미리 쏴둔 요청이 있으면 재사용
+  var key = 'rpc:'+fn+'|'+JSON.stringify(args||{});
+  if(window.__PRE && window.__PRE[key]){
+    var pre = window.__PRE[key];
+    delete window.__PRE[key];
+    setPending(1);
+    return pre.then(function(r){ setPending(-1); return norm(r); });
+  }
+  if(INFLIGHT[key]) return INFLIGHT[key];
   setPending(1);
-  var p = rawApi(action, data).then(function(r){
-    setPending(-1);
-    delete INFLIGHT[key];
-    return r;
+  var p = sbRaw('rpc/'+fn, {method:'POST', body:args||{}}).then(function(r){
+    setPending(-1); delete INFLIGHT[key]; return norm(r);
   });
-  if(READ_ACTIONS[action]) INFLIGHT[key] = p;
+  INFLIGHT[key] = p;
   return p;
 }
+function sbGet(path){
+  setPending(1);
+  return sbRaw(path).then(function(r){ setPending(-1); return norm(r); });
+}
 
-// stale-while-revalidate: 캐시가 있으면 즉시 onData(값,false),
-// 서버 응답이 달라지면 onData(값,true)로 한 번 더.
-function apiSWR(action, data, onData, ttl){
-  var key = ckey(action, data);
+// 캐시가 있으면 즉시 onData(…,false), 서버 값이 달라지면 onData(…,true)
+function swr(key, fetcher, onData, ttl){
   var c = cacheGet(key);
-  var servedJson = null;
+  var served = null;
   if(c){
-    servedJson = JSON.stringify(c.v);
-    try{ onData(c.v, false); }catch(e){}
-    if(ttl && (Date.now()-c.t) < ttl) return Promise.resolve(c.v);
+    served = JSON.stringify(c.v);
+    try{ onData({ok:true, data:c.v}, false); }catch(e){}
+    if(ttl && (Date.now()-c.t) < ttl) return Promise.resolve({ok:true, data:c.v});
   }
-  return api(action, data).then(function(r){
-    if(r && r.ok){
-      var s = JSON.stringify(r);
-      cacheSet(key, r);
-      if(s !== servedJson){ try{ onData(r, true); }catch(e){} }
-    } else if(!c){
-      try{ onData(r, true); }catch(e){}
+  return fetcher().then(function(res){
+    if(res.ok && res.data != null){
+      var s = JSON.stringify(res.data);
+      cacheSet(key, res.data);
+      if(s !== served){ try{ onData(res, true); }catch(e){} }
+    } else if(!res.ok){
+      if(!c){ try{ onData(res, true); }catch(e){} }
+      else if(!res.netError) reportError(res.error);
     }
-    return r;
+    return res;
   });
 }
-
-function addLog(desc){
-  var dt = fmtLocal(new Date());
-  cacheClear('getChangeLogs');
-  api('addChangeLog', {dt:dt, by:'', desc:desc});   // 화면을 막지 않는 백그라운드 전송
-}
-function currentPin(){ return localStorage.getItem('sch_pin') || ''; }
 
 // ══════════════════════════════════════════════════════════
 //  유틸
 // ══════════════════════════════════════════════════════════
 function pad2(n){ return (n<10?'0':'')+n; }
 function ymdLocal(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
-function fmtLocal(d){ return ymdLocal(d)+' '+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds()); }
-function dateOf(ds){ return new Date(ds+'T00:00:00'); }   // 로컬 기준 파싱 (UTC 밀림 방지)
+function dateOf(ds){ return new Date(ds+'T00:00:00'); }   // 로컬 기준 (UTC 밀림 방지)
 function esc(s){
   return String(s==null?'':s).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   });
 }
+function monthsInRange(from, to){   // to는 미포함 (해당 월 1일)
+  var out=[], f=String(from).slice(0,7).split('-').map(Number), t=String(to).slice(0,7).split('-').map(Number);
+  var y=f[0], m=f[1], guard=0;
+  while((y<t[0] || (y===t[0] && m<t[1])) && guard++ < 60){
+    out.push(y+'-'+pad2(m));
+    if(++m>12){ m=1; y++; }
+  }
+  return out;
+}
+function displayNameOf(name, retired){ return retired ? '(퇴)'+name : name; }
+
+function reportError(msg){
+  var el = document.getElementById('boot-err');
+  if(!el) return;
+  el.textContent = msg;
+  el.style.display = 'flex';
+}
+function clearError(){
+  var el = document.getElementById('boot-err');
+  if(el) el.style.display = 'none';
+}
 
 // ══════════════════════════════════════════════════════════
-//  권한 (관리자모드: 슈퍼관리자 / 관리자)
+//  상태
 // ══════════════════════════════════════════════════════════
-var ROLE = null; // null | 'admin' | 'super'
-function isSuper(){ return ROLE==='super'; }
-function isAdminUp(){ return ROLE==='admin' || ROLE==='super'; }
+var STATE = {
+  role:null,           // null | 'admin' | 'super'
+  employees:[], empMap:{},
+  types:[],      typeMap:{},
+  notice:'',
+  months:{},           // 'YYYY-MM' → annuals[]  (받아둔 달만 키가 존재)
+  fetchedAt:{},        // 'YYYY-MM' → 서버에서 받은 시각 (불필요한 재조회 방지)
+  loaded:false
+};
+function TOKEN(){ try{ return localStorage.getItem('sch_token') || ''; }catch(e){ return ''; } }
+function setToken(t){
+  try{ if(t) localStorage.setItem('sch_token', t); else localStorage.removeItem('sch_token'); }catch(e){}
+}
+function isSuper(){ return STATE.role==='super'; }
+function isAdminUp(){ return STATE.role==='admin' || STATE.role==='super'; }
+function empOf(id){ return STATE.empMap[id] || null; }
+function empDisplay(id, fallback){
+  var e = STATE.empMap[id];
+  return e ? (e.displayName || e.name) : (fallback || '');
+}
+function typeClass(k){ var t=STATE.typeMap[k]; return (t && t.cssClass) || 'cc-an'; }
 
+function applyBootstrap(b, isFresh){
+  if(!b) return;
+  // 지난 달을 캐시로 그릴 때, 그 캐시에 들어 있던 오래된 직원/공지가
+  // 지금 화면의 최신 값을 덮어쓰면 안 된다. 서버에서 막 받은 응답이거나
+  // 아직 아무것도 없을 때만 공용 정보를 반영한다.
+  if(isFresh || !STATE.loaded){
+    STATE.role = b.role || null;
+    STATE.employees = b.employees || [];
+    STATE.empMap = {};
+    STATE.employees.forEach(function(e){ STATE.empMap[e.id] = e; });
+    STATE.types = b.annual_types || [];
+    STATE.typeMap = {};
+    STATE.types.forEach(function(t){ STATE.typeMap[t.key] = t; });
+    STATE.notice = b.notice || '';
+  }
+
+  // 받아온 범위의 모든 달을 빈 배열로 먼저 깔아둔다.
+  // 그래야 "연차가 없는 달"과 "아직 받지 않은 달"이 구분된다.
+  var now = Date.now();
+  if(b.range) monthsInRange(b.range.from, b.range.to).forEach(function(ym){
+    STATE.months[ym] = [];
+    if(isFresh) STATE.fetchedAt[ym] = now;
+  });
+  (b.annuals || []).forEach(function(a){
+    var ym = String(a.date).slice(0,7);
+    (STATE.months[ym] = STATE.months[ym] || []).push(a);
+  });
+  STATE.loaded = true;
+}
+
+function fetchMonth(ym, force){
+  return swr('boot|'+ym,
+    function(){ return rpc('get_bootstrap', {p_ym:ym, p_token:TOKEN()||null}); },
+    function(res, isFresh){
+      if(res.ok && res.data){
+        clearError();
+        var hadToken = !!TOKEN();
+        applyBootstrap(res.data, isFresh);
+        // 토큰이 있는데 권한이 안 나오면 만료된 것
+        if(hadToken && !STATE.role) setToken('');
+        renderAll();
+      } else if(!res.ok){
+        STATE.loaded = true;
+        renderAll();
+        if(res.schemaMissing){
+          reportError('데이터베이스가 아직 준비되지 않았습니다. supabase/schema.sql 을 SQL Editor에서 실행해주세요. (' + res.error + ')');
+        } else {
+          reportError(res.error);
+        }
+      }
+    }, force ? 0 : SWR_TTL);
+}
+
+// ══════════════════════════════════════════════════════════
+//  권한 (관리자모드)
+// ══════════════════════════════════════════════════════════
 function refreshRoleUI(){
   var badge = document.getElementById('role-badge');
   var modeBtn = document.getElementById('admin-mode-btn');
   var logoutBtn = document.getElementById('admin-logout-btn');
-  if(ROLE==='super'){
+  if(STATE.role==='super'){
     badge.textContent='슈퍼관리자'; badge.className='rbg rb-super';
     modeBtn.style.display='none'; logoutBtn.style.display='inline-flex';
-  } else if(ROLE==='admin'){
+  } else if(STATE.role==='admin'){
     badge.textContent='관리자'; badge.className='rbg rb-admin';
     modeBtn.style.display='none'; logoutBtn.style.display='inline-flex';
   } else {
     badge.textContent=''; badge.className='rbg';
     modeBtn.style.display='inline-flex'; logoutBtn.style.display='none';
   }
-  renderEmpList();
-  renderCalNotice();
-}
-function initRole(){
-  var pin = currentPin();
-  if(!pin){ ROLE=null; refreshRoleUI(); return; }
-  // 캐시된 권한으로 즉시 UI 복원 → 서버 확인은 뒤에서
-  apiSWR('checkPin', {pin:pin}, function(r){
-    ROLE = (r && r.ok) ? r.role : null;
-    // 네트워크 장애로 실패한 경우엔 PIN을 지우지 않는다 (오탈퇴 방지)
-    if(r && !r.ok && !r.netError) localStorage.removeItem('sch_pin');
-    refreshRoleUI();
-  });
 }
 function openPinPop(){
   document.getElementById('pin-input').value='';
@@ -526,53 +606,40 @@ function closePinPop(){
 function submitPin(){
   var pin = document.getElementById('pin-input').value.trim();
   if(!pin) return;
-  api('checkPin', {pin:pin}).then(function(r){
-    if(r.ok){
-      localStorage.setItem('sch_pin', pin);
-      cacheSet(ckey('checkPin',{pin:pin}), r);
-      ROLE = r.role;
+  var errEl = document.getElementById('pin-err');
+  rpc('login', {p_pin:pin}).then(function(res){
+    if(res.ok && res.data && res.data.token){
+      setToken(res.data.token);
+      STATE.role = res.data.role;
+      cacheClear('boot|');            // 권한이 바뀌었으니 캐시를 버린다
       closePinPop();
-      refreshRoleUI();
+      renderAll();
+      fetchMonth(curYM(), true);
+    } else if(res.ok){
+      errEl.textContent = '비밀번호가 올바르지 않습니다.';
+      errEl.style.display='block';
     } else {
-      var errEl = document.getElementById('pin-err');
-      errEl.textContent = r.netError ? (r.error||'서버 연결 실패') : '비밀번호가 올바르지 않습니다.';
+      errEl.textContent = res.error;
       errEl.style.display='block';
     }
   });
 }
 function doLogout(){
-  localStorage.removeItem('sch_pin');
-  cacheClear('checkPin');
-  ROLE = null;
-  refreshRoleUI();
+  var t = TOKEN();
+  setToken('');
+  STATE.role = null;
+  cacheClear('boot|');
+  renderAll();
+  if(t) rpc('logout', {p_token:t});
+  fetchMonth(curYM(), true);
 }
-
-// ══════════════════════════════════════════════════════════
-//  전역 상태
-// ══════════════════════════════════════════════════════════
-var EMPLOYEES = [];
-var EMP_MAP = {};
-var EMP_LOADED = false;
-
-function setEmployees(list){
-  EMPLOYEES = list || [];
-  EMP_MAP = {};
-  EMPLOYEES.forEach(function(e){ EMP_MAP[e.id] = e; });
-  EMP_LOADED = true;
-}
-function empName(id){ var e=EMP_MAP[id]; return e?e.name:''; }
-function empColor(id){ var e=EMP_MAP[id]; return e?(e.color||'#3B6FE8'):'#3B6FE8'; }
-
-// 캐시가 있으면 즉시 그리고, 서버 값이 달라질 때만 다시 그린다.
-function loadEmployees(force){
-  return apiSWR('getEmployees', {}, function(r){
-    if(r && r.ok){ setEmployees(r.employees); renderEmpList(); renderCal(); }
-    else if(!EMP_LOADED){ EMP_LOADED = true; renderEmpList(); }
-  }, force ? 0 : SWR_TTL);
-}
-function commitEmployees(list){   // 낙관적 수정분을 캐시에도 반영
-  setEmployees(list);
-  cacheSet(ckey('getEmployees',{}), {ok:true, employees:list});
+// 토큰이 만료된 상태로 쓰기를 시도한 경우
+function handleAuthExpired(){
+  setToken('');
+  STATE.role = null;
+  cacheClear('boot|');
+  renderAll();
+  alert('로그인이 만료되었습니다. 관리자모드로 다시 로그인해주세요.');
 }
 
 // ══════════════════════════════════════════════════════════
@@ -584,7 +651,7 @@ document.querySelectorAll('.tbtn').forEach(function(btn){
     document.querySelectorAll('.pg').forEach(function(p){p.classList.remove('active');});
     btn.classList.add('active');
     document.getElementById('pg-'+btn.dataset.tab).classList.add('active');
-    if(btn.dataset.tab==='emp'){ renderEmpList(); loadEmployees(); }
+    if(btn.dataset.tab==='emp') fetchMonth(curYM());
     if(btn.dataset.tab==='log') loadLogs();
   });
 });
@@ -614,15 +681,16 @@ function submitAddEmp(){
   var name = document.getElementById('ne-name').value.trim();
   var team = document.getElementById('ne-team').value.trim();
   if(!name){ alert('이름을 입력해주세요.'); return; }
-  api('addEmployee', {pin:currentPin(), emp:{name:name, team:team, color:NEW_EMP_COLOR}}).then(function(r){
-    if(r.ok){
-      document.getElementById('ne-name').value='';
-      document.getElementById('ne-team').value='';
-      addLog('직원 등록: '+name);
-      cacheClear('getEmployees');
-      loadEmployees(true);   // id는 서버가 발급하므로 이때만 재조회
-    } else alert(r.error||'등록 실패');
-  });
+  rpc('add_employee', {p_token:TOKEN(), p_name:name, p_team:team, p_color:NEW_EMP_COLOR})
+    .then(function(res){
+      if(res.ok){
+        document.getElementById('ne-name').value='';
+        document.getElementById('ne-team').value='';
+        cacheClear('boot|'); cacheClear('logs');
+        fetchMonth(curYM(), true);   // id는 서버가 발급하므로 이때만 재조회
+      } else if(res.authExpired) handleAuthExpired();
+      else alert(res.error || '등록 실패');
+    });
 }
 
 function renderEmpList(){
@@ -630,22 +698,25 @@ function renderEmpList(){
   document.getElementById('emp-add-card').style.display = canEdit ? '' : 'none';
   document.getElementById('emp-noauth-msg').style.display = canEdit ? 'none' : 'flex';
   var list = document.getElementById('emp-list');
-  document.getElementById('emp-count').textContent = EMPLOYEES.length+'명';
-  if(!EMPLOYEES.length){
-    list.innerHTML = EMP_LOADED ? '<div class="empty">등록된 직원이 없습니다.</div>' : '<div class="empty">불러오는 중…</div>';
+  document.getElementById('emp-count').textContent = STATE.employees.length+'명';
+  if(!STATE.employees.length){
+    list.innerHTML = STATE.loaded ? '<div class="empty">등록된 직원이 없습니다.</div>'
+                                  : '<div class="empty">불러오는 중…</div>';
     return;
   }
-  var sorted = EMPLOYEES.slice().sort(function(a,b){
+  var sorted = STATE.employees.slice().sort(function(a,b){
     var ra=a.retired?1:0, rb=b.retired?1:0;
     if(ra!==rb) return ra-rb;
     return (a.name||'').localeCompare(b.name||'');
   });
   list.innerHTML = sorted.map(function(e){
-    var initial = esc((e.name||'?').replace(/^\(퇴\)/,'').slice(0,1));
+    var shown = e.displayName || displayNameOf(e.name, e.retired);
+    var initial = esc((e.name||'?').slice(0,1));
     return '<div class="emp-card'+(e.retired?' retired':'')+'">'+
       '<div class="emp-top">'+
         '<div class="emp-avatar" style="background:'+esc(e.color||'#3B6FE8')+'">'+initial+'</div>'+
-        '<div><div class="emp-name">'+esc(e.name)+'</div><div class="emp-team">'+(e.retired?('퇴사일 '+esc(e.retiredAt||'-')) : esc(e.team||'팀 미지정'))+'</div></div>'+
+        '<div><div class="emp-name">'+esc(shown)+'</div><div class="emp-team">'+
+          (e.retired ? ('퇴사일 '+esc(e.retiredAt||'-')) : esc(e.team||'팀 미지정'))+'</div></div>'+
       '</div>'+
       (canEdit ? (
       '<div class="emp-actions" data-id="'+esc(e.id)+'">'+
@@ -658,34 +729,37 @@ function renderEmpList(){
     '</div>';
   }).join('');
 }
-// 이벤트 위임 — 목록을 다시 그려도 핸들러를 새로 달지 않는다.
 document.getElementById('emp-list').addEventListener('click', function(ev){
   var btn = ev.target.closest ? ev.target.closest('button[data-act]') : null;
   if(!btn) return;
   var id = btn.parentNode.getAttribute('data-id');
-  var name = empName(id);
+  var e = empOf(id); if(!e) return;
   var act = btn.getAttribute('data-act');
   if(act==='edit') openEmpEdit(id);
-  else if(act==='retire') doRetire(id, name);
-  else if(act==='unretire') doUnretire(id, name);
-  else if(act==='del') doDeleteEmp(id, name);
+  else if(act==='retire') doRetire(id, e.displayName || e.name);
+  else if(act==='unretire') doUnretire(id, e.displayName || e.name);
+  else if(act==='del') doDeleteEmp(id, e.name);
 });
 
 // 서버 응답을 기다리지 않고 화면부터 바꾸고, 실패하면 되돌린다.
-function empWrite(action, payload, mutate, logDesc, failMsg){
-  var before = EMPLOYEES.map(function(e){ return Object.assign({}, e); });
-  commitEmployees(mutate(before.map(function(e){ return Object.assign({}, e); })));
-  renderEmpList(); renderCal();
-  api(action, payload).then(function(r){
-    if(r.ok){
-      addLog(logDesc);
-      cacheClear('getEmployees');
-      loadEmployees(true);   // 서버가 확정한 값으로 조용히 맞춘다
-    }
-    else {
-      commitEmployees(before);
-      renderEmpList(); renderCal();
-      alert(r.error||failMsg);
+function empWrite(fn, args, mutate, failMsg){
+  var before = STATE.employees.map(function(e){ return Object.assign({}, e); });
+  var next = mutate(STATE.employees.map(function(e){ return Object.assign({}, e); }));
+  next.forEach(function(e){ e.displayName = displayNameOf(e.name, e.retired); });
+  STATE.employees = next;
+  STATE.empMap = {}; next.forEach(function(e){ STATE.empMap[e.id]=e; });
+  renderAll();
+
+  rpc(fn, args).then(function(res){
+    if(res.ok){
+      cacheClear('boot|'); cacheClear('logs');
+      fetchMonth(curYM(), true);     // 서버가 확정한 값으로 조용히 맞춘다
+    } else {
+      STATE.employees = before;
+      STATE.empMap = {}; before.forEach(function(e){ STATE.empMap[e.id]=e; });
+      renderAll();
+      if(res.authExpired) handleAuthExpired();
+      else alert(res.error || failMsg);
     }
   });
 }
@@ -693,38 +767,38 @@ function empWrite(action, payload, mutate, logDesc, failMsg){
 function doRetire(id, name){
   if(!isSuper()) return;
   if(!confirm(name+' 님을 퇴사 처리하시겠습니까?\n\n· 기존 연차 기록은 그대로 유지됩니다.\n· 표시 이름 앞에 "(퇴)"가 붙습니다.')) return;
-  empWrite('retireEmployee', {pin:currentPin(), id:id}, function(list){
+  empWrite('set_employee_retired', {p_token:TOKEN(), p_id:id, p_retired:true}, function(list){
     return list.map(function(e){
-      if(e.id===id){ e.retired=true; e.retiredAt=e.retiredAt||ymdLocal(new Date()); if(!/^\(퇴\)/.test(e.name||'')) e.name='(퇴)'+e.name; }
+      if(e.id===id){ e.retired=true; e.retiredAt=e.retiredAt||ymdLocal(new Date()); }
       return e;
     });
-  }, '퇴사 처리: '+name, '처리 실패');
+  }, '처리 실패');
 }
 function doUnretire(id, name){
   if(!isSuper()) return;
-  if(!confirm(name.replace(/^\(퇴\)/,'')+' 님을 복직 처리하시겠습니까?')) return;
-  empWrite('unretireEmployee', {pin:currentPin(), id:id}, function(list){
+  if(!confirm(String(name).replace(/^\(퇴\)/,'')+' 님을 복직 처리하시겠습니까?')) return;
+  empWrite('set_employee_retired', {p_token:TOKEN(), p_id:id, p_retired:false}, function(list){
     return list.map(function(e){
-      if(e.id===id){ e.retired=false; e.retiredAt=''; e.name=(e.name||'').replace(/^\(퇴\)/,''); }
+      if(e.id===id){ e.retired=false; e.retiredAt=null; }
       return e;
     });
-  }, '복직 처리: '+name, '처리 실패');
+  }, '처리 실패');
 }
 function doDeleteEmp(id, name){
   if(!isSuper()) return;
   if(!confirm(name+' 님을 목록에서 완전히 삭제하시겠습니까?\n(연차 기록은 삭제되지 않고 남아있습니다)')) return;
-  empWrite('deleteEmployee', {pin:currentPin(), id:id}, function(list){
+  empWrite('delete_employee', {p_token:TOKEN(), p_id:id}, function(list){
     return list.filter(function(e){ return e.id!==id; });
-  }, '직원 삭제: '+name, '삭제 실패');
+  }, '삭제 실패');
 }
 
 var _editEmpId = null, _editEmpColor = null;
 function openEmpEdit(id){
   if(!isSuper()) return;
-  var e = EMP_MAP[id];
+  var e = empOf(id);
   if(!e) return;
   _editEmpId = id; _editEmpColor = e.color || EMP_COLORS[0];
-  document.getElementById('ee-name').value = e.name || '';
+  document.getElementById('ee-name').value = e.name || '';   // 깨끗한 이름 ("(퇴)" 없이)
   document.getElementById('ee-team').value = e.team || '';
   buildColorRow(document.getElementById('ee-color-row'), _editEmpColor, function(c){ _editEmpColor=c; });
   document.getElementById('emp-overlay').classList.add('open');
@@ -741,62 +815,43 @@ function submitEditEmp(){
   if(!name){ alert('이름을 입력해주세요.'); return; }
   var id = _editEmpId, color = _editEmpColor;
   closeEmpEdit();
-  empWrite('updateEmployee', {pin:currentPin(), id:id, fields:{name:name, team:team, color:color}}, function(list){
-    return list.map(function(e){
-      if(e.id===id){ e.name=name; e.team=team; e.color=color; }
-      return e;
-    });
-  }, '직원 정보 수정: '+name, '저장 실패');
+  empWrite('update_employee', {p_token:TOKEN(), p_id:id, p_name:name, p_team:team, p_color:color},
+    function(list){
+      return list.map(function(e){
+        if(e.id===id){ e.name=name; e.team=team; e.color=color; }
+        return e;
+      });
+    }, '저장 실패');
 }
 
 // ══════════════════════════════════════════════════════════
 //  연차 & 휴일근무 달력
 // ══════════════════════════════════════════════════════════
 var cY=new Date().getFullYear(), cM=new Date().getMonth();
-var cAn=[];
-var ANNUALS={};          // ym -> annuals[]  (월 이동 시 재요청 없이 즉시 표시)
-var CAL_LOADED={};
 var popDate=null;
 
 function curYM(){ return cY+'-'+pad2(cM+1); }
+function curAnnuals(){ return STATE.months[curYM()] || []; }
+
 function moveCal(d){
   if(d===0){ cY=new Date().getFullYear(); cM=new Date().getMonth(); }
   else{ cM+=d; if(cM<0){cM=11;cY--;} if(cM>11){cM=0;cY++;} }
-  loadCal();
+  renderCal();                  // 이미 받아둔 달이면 즉시 표시
+  ensureMonth(curYM());
 }
-function loadCal(){
-  var ym = curYM();
-  document.getElementById('cal-ttl').textContent = cY+'년 '+(cM+1)+'월';
-  cAn = ANNUALS[ym] || [];
-  renderCal();                                   // 응답을 기다리지 않고 먼저 그린다
-  apiSWR('getAnnuals', {ym:ym}, function(r){
-    if(r && r.ok){
-      ANNUALS[ym] = r.annuals || [];
-      CAL_LOADED[ym] = true;
-      if(curYM()===ym){ cAn = ANNUALS[ym]; renderCal(); }
-    }
-  }, SWR_TTL).then(function(){ prefetchNeighbors(cY, cM); });
-}
-// 앞뒤 달을 미리 받아둬 화살표 이동이 즉시 반응하게 한다.
-function prefetchNeighbors(y, m){
-  [[y, m-1],[y, m+1]].forEach(function(p){
-    var yy=p[0], mm=p[1];
-    if(mm<0){ mm=11; yy--; } if(mm>11){ mm=0; yy++; }
-    var ym = yy+'-'+pad2(mm+1);
-    if(ANNUALS[ym]) return;
-    apiSWR('getAnnuals', {ym:ym}, function(r){
-      if(r && r.ok){ ANNUALS[ym]=r.annuals||[]; CAL_LOADED[ym]=true; if(curYM()===ym){ cAn=ANNUALS[ym]; renderCal(); } }
-    }, SWR_TTL);
-  });
-}
-function commitAnnuals(ym, list){
-  ANNUALS[ym] = list;
-  cacheSet(ckey('getAnnuals',{ym:ym}), {ok:true, annuals:list});
+// 3개월 창 안에 있고 받아온 지 얼마 안 됐으면 요청하지 않는다.
+function ensureMonth(ym){
+  var at = STATE.fetchedAt[ym];
+  if(at && (Date.now()-at) < SWR_TTL) return Promise.resolve(null);
+  return fetchMonth(ym);
 }
 
 function renderCal(){
+  document.getElementById('cal-ttl').textContent = cY+'년 '+(cM+1)+'월';
+  var arr = curAnnuals();
   var idx = {};
-  cAn.forEach(function(a){ (idx[a.date]=idx[a.date]||[]).push(a); });
+  arr.forEach(function(a){ (idx[a.date]=idx[a.date]||[]).push(a); });
+
   var today = ymdLocal(new Date());
   var first = new Date(cY,cM,1).getDay();
   var last  = new Date(cY,cM+1,0).getDate();
@@ -804,12 +859,19 @@ function renderCal(){
   var ymP = cM===0 ? (cY-1)+'-12' : cY+'-'+pad2(cM);
   var ymC = curYM();
   var ymN = cM===11 ? (cY+1)+'-01' : cY+'-'+pad2(cM+2);
+
+  // 앞뒤 달의 칩도 같은 3개월 창에 들어 있으므로 같이 그려준다
+  var idxAll = {};
+  [ymP, ymC, ymN].forEach(function(ym){
+    (STATE.months[ym]||[]).forEach(function(a){ (idxAll[a.date]=idxAll[a.date]||[]).push(a); });
+  });
+
   var html = '<div class="cal-dow">일</div><div class="cal-dow">월</div><div class="cal-dow">화</div>'+
              '<div class="cal-dow">수</div><div class="cal-dow">목</div><div class="cal-dow">금</div><div class="cal-dow">토</div>';
-  for(var i=first-1;i>=0;i--){ var pd=prevLast-i; html += dayHtml(ymP+'-'+pad2(pd), pd, true, today, idx); }
+  for(var i=first-1;i>=0;i--){ var pd=prevLast-i; html += dayHtml(ymP+'-'+pad2(pd), pd, true, today, idxAll); }
   for(var d=1; d<=last; d++){ html += dayHtml(ymC+'-'+pad2(d), d, false, today, idx); }
   var used=first+last, rem = used%7===0 ? 0 : 7-(used%7);
-  for(var n=1; n<=rem; n++) html += dayHtml(ymN+'-'+pad2(n), n, true, today, idx);
+  for(var n=1; n<=rem; n++) html += dayHtml(ymN+'-'+pad2(n), n, true, today, idxAll);
   document.getElementById('cal-grid').innerHTML = html;   // 42셀 한 번에 반영
 }
 function dayHtml(ds, dayNum, other, today, idx){
@@ -822,9 +884,8 @@ function dayHtml(ds, dayNum, other, today, idx){
   var arr = idx[ds];
   if(arr) for(var i=0;i<arr.length;i++){
     var a = arr[i];
-    var t = ATYPE_MAP[a.type] || {c:'cc-an'};
-    var nm = esc(empName(a.empId) || a.empName)+' '+esc(a.type);
-    h += '<div class="cc '+t.c+'" title="'+nm+'">'+nm+'</div>';
+    var nm = esc(empDisplay(a.empId, a.empName))+' '+esc(a.type);
+    h += '<div class="cc '+typeClass(a.type)+'" title="'+nm+'">'+nm+'</div>';
   }
   return h+'</div></div>';
 }
@@ -838,16 +899,15 @@ function openCPop(date, e){
   popDate = date;
   var pop = document.getElementById('cpop');
   var empWrap = document.getElementById('cpop-emp-wrap');
+  var dayAnns = annualsOn(date);
 
   if(!isAdminUp()){
-    // 권한 없음 — 조회 전용
     empWrap.style.display='none';
     document.getElementById('cpop-lbl').textContent = date+' - 연차 현황';
     document.getElementById('cpop-del').style.display='none';
-    var tc = document.getElementById('cpop-types');
-    var dayAnns = cAn.filter(function(a){return a.date===date;});
-    tc.innerHTML = (dayAnns.length
-      ? '<div style="font-size:12px;color:var(--ts);line-height:1.8">'+dayAnns.map(function(a){return '<div>'+esc(empName(a.empId)||a.empName)+' — '+esc(a.type)+'</div>';}).join('')+'</div>'
+    document.getElementById('cpop-types').innerHTML = (dayAnns.length
+      ? '<div style="font-size:12px;color:var(--ts);line-height:1.8">'+dayAnns.map(function(a){
+          return '<div>'+esc(empDisplay(a.empId,a.empName))+' — '+esc(a.type)+'</div>'; }).join('')+'</div>'
       : '<div style="font-size:12px;color:var(--tm)">등록된 내역이 없습니다.</div>')
       + '<div style="font-size:11px;color:var(--tm);margin-top:8px">⚠️ 등록/변경은 관리자모드에서만 가능합니다.</div>';
     openPopAt(pop, e);
@@ -857,13 +917,18 @@ function openCPop(date, e){
   empWrap.style.display='block';
   var empSel = document.getElementById('cpop-emp-sel');
   var prev = empSel.value;
-  var activeEmps = EMPLOYEES.filter(function(u){return !u.retired;})
+  var activeEmps = STATE.employees.filter(function(u){return !u.retired;})
     .sort(function(a,b){return (a.name||'').localeCompare(b.name||'');});
-  empSel.innerHTML = activeEmps.map(function(u){return '<option value="'+esc(u.id)+'">'+esc(u.name)+'</option>';}).join('');
-  if(prev && EMP_MAP[prev] && !EMP_MAP[prev].retired) empSel.value = prev;   // 직전 선택 유지
+  empSel.innerHTML = activeEmps.map(function(u){
+    return '<option value="'+esc(u.id)+'">'+esc(u.name)+'</option>'; }).join('');
+  if(prev && STATE.empMap[prev] && !STATE.empMap[prev].retired) empSel.value = prev;
   empSel.onchange = function(){ refreshCPopState(date); };
   refreshCPopState(date);
   openPopAt(pop, e);
+}
+function annualsOn(date){
+  var ym = String(date).slice(0,7);
+  return (STATE.months[ym] || []).filter(function(a){ return a.date===date; });
 }
 function openPopAt(pop, e){
   pop.style.left='-9999px'; pop.style.top='-9999px';
@@ -880,17 +945,22 @@ function refreshCPopState(date){
   var targetId = empSel.value;
   var tc = document.getElementById('cpop-types');
   document.getElementById('cpop-lbl').textContent = date+' - 연차/휴일근무 등록';
-  var exist = cAn.find(function(a){return a.empId===targetId && a.date===date;});
+  var dayAnns = annualsOn(date);
+  var exist = dayAnns.find(function(a){return a.empId===targetId;});
   document.getElementById('cpop-del').style.display = exist ? 'inline-flex' : 'none';
-  var others = cAn.filter(function(a){return a.date===date && a.empId!==targetId;});
+  var others = dayAnns.filter(function(a){return a.empId!==targetId;});
   var html = '';
   if(others.length){
     html += '<div style="font-size:12px;color:var(--ts);margin-bottom:8px;line-height:1.8">'+
-      others.map(function(a){return '<div>'+esc(empName(a.empId)||a.empName)+' — '+esc(a.type)+'</div>';}).join('')+'</div>';
+      others.map(function(a){ return '<div>'+esc(empDisplay(a.empId,a.empName))+' — '+esc(a.type)+'</div>'; }).join('')+
+      '</div>';
   }
-  ATYPES.filter(function(t){return !t.weekendOnly || isWeekend(date);}).forEach(function(t){
-    html += '<button class="at-btn'+(exist && exist.type===t.k ? ' sel' : '')+'" data-k="'+esc(t.k)+'">'+esc(t.l)+'</button>';
+  var weekend = (dateOf(date).getDay()===0 || dateOf(date).getDay()===6);
+  STATE.types.filter(function(t){ return !t.weekendOnly || weekend; }).forEach(function(t){
+    html += '<button class="at-btn'+(exist && exist.type===t.key ? ' sel' : '')+
+            '" data-k="'+esc(t.key)+'">'+esc(t.label)+'</button>';
   });
+  if(!STATE.types.length) html += '<div style="font-size:12px;color:var(--tm)">연차 종류를 불러오지 못했습니다.</div>';
   tc.innerHTML = html;
 }
 document.getElementById('cpop-types').addEventListener('click', function(e){
@@ -899,49 +969,40 @@ document.getElementById('cpop-types').addEventListener('click', function(e){
 });
 function closeCPop(){ document.getElementById('cpop').classList.remove('open'); }
 
-// 저장/삭제는 화면을 먼저 갱신하고(낙관적 반영) 실패 시 되돌린다.
+// 저장/삭제는 화면을 먼저 갱신하고(낙관적) 실패 시 되돌린다.
+function writeAnnual(id, date, type, failMsg){
+  var ym = String(date).slice(0,7);
+  var before = (STATE.months[ym] || []).slice();
+  var next = before.filter(function(a){ return !(a.empId===id && a.date===date); });
+  if(type) next.push({empId:id, empName:(empOf(id)||{}).name||'', date:date, type:type});
+  STATE.months[ym] = next;
+  closeCPop();
+  renderCal();
+
+  rpc('save_annual', {p_token:TOKEN(), p_emp_id:id, p_date:date, p_type:type||''})
+    .then(function(res){
+      if(res.ok){
+        cacheClear('boot|'); cacheClear('logs');
+      } else {
+        STATE.months[ym] = before;
+        renderCal();
+        if(res.authExpired) handleAuthExpired();
+        else alert(res.error || failMsg);
+      }
+    });
+}
 function saveAnnualType(type){
   if(!isAdminUp()) return;
   if(!popDate){ alert('날짜를 다시 선택해주세요.'); return; }
-  var empSel = document.getElementById('cpop-emp-sel');
-  var id = empSel.value;
+  var id = document.getElementById('cpop-emp-sel').value;
   if(!id){ alert('직원을 선택해주세요.'); return; }
-  var name = empName(id), date = popDate, ym = date.slice(0,7);
-  var before = (ANNUALS[ym]||cAn).slice();
-  var next = before.filter(function(a){return !(a.empId===id && a.date===date);});
-  next.push({empId:id, empName:name, date:date, type:type});
-  commitAnnuals(ym, next);
-  if(curYM()===ym){ cAn = next; renderCal(); }
-  closeCPop();
-  api('saveAnnual', {pin:currentPin(), a:{empId:id, empName:name, date:date, type:type}}).then(function(res){
-    if(res.ok){ addLog(name+' '+date+' '+type+' 등록'); }
-    else{
-      commitAnnuals(ym, before);
-      if(curYM()===ym){ cAn = before; renderCal(); }
-      alert(res.error||'저장 실패');
-    }
-  });
+  writeAnnual(id, popDate, type, '저장 실패');
 }
 function deleteAnnual(){
   if(!isAdminUp()) return;
   if(!confirm('등록된 연차/휴일근무를 삭제하시겠습니까?')) return;
   if(!popDate) return;
-  var empSel = document.getElementById('cpop-emp-sel');
-  var id = empSel.value;
-  var name = empName(id), date = popDate, ym = date.slice(0,7);
-  var before = (ANNUALS[ym]||cAn).slice();
-  var next = before.filter(function(a){return !(a.empId===id && a.date===date);});
-  commitAnnuals(ym, next);
-  if(curYM()===ym){ cAn = next; renderCal(); }
-  closeCPop();
-  api('saveAnnual', {pin:currentPin(), a:{empId:id, empName:name, date:date, type:''}}).then(function(res){
-    if(res.ok){ addLog(name+' '+date+' 연차/휴일근무 삭제'); }
-    else{
-      commitAnnuals(ym, before);
-      if(curYM()===ym){ cAn = before; renderCal(); }
-      alert(res.error||'삭제 실패');
-    }
-  });
+  writeAnnual(document.getElementById('cpop-emp-sel').value, popDate, '', '삭제 실패');
 }
 document.getElementById('cpop-del').addEventListener('click', deleteAnnual);
 document.addEventListener('click', function(e){
@@ -952,24 +1013,18 @@ document.addEventListener('click', function(e){
 // ══════════════════════════════════════════════════════════
 //  연차 공지
 // ══════════════════════════════════════════════════════════
-var CAL_NOTICE = '';
 function renderCalNotice(){
   document.getElementById('cal-notice-edit-btn').style.display = isAdminUp() ? 'inline-flex' : 'none';
   var viewEl = document.getElementById('cal-notice-view');
-  if(!CAL_NOTICE.trim()){
+  if(!STATE.notice.trim()){
     viewEl.innerHTML = isAdminUp() ? '<span style="color:#C0955A">공지사항을 입력해주세요.</span>' : '';
   } else {
-    viewEl.innerHTML = CAL_NOTICE.split('\n').map(function(l){return '<div>'+(esc(l)||'&nbsp;')+'</div>';}).join('');
+    viewEl.innerHTML = STATE.notice.split('\n').map(function(l){
+      return '<div>'+(esc(l)||'&nbsp;')+'</div>'; }).join('');
   }
 }
-function loadCalNotice(force){
-  return apiSWR('getCalNotice', {}, function(res){
-    CAL_NOTICE = (res && res.ok) ? (res.notice||'') : '';
-    renderCalNotice();
-  }, force ? 0 : SWR_TTL);
-}
 function openCalNoticeEdit(){
-  document.getElementById('cal-notice-ta').value = CAL_NOTICE;
+  document.getElementById('cal-notice-ta').value = STATE.notice;
   document.getElementById('cal-notice-view').style.display='none';
   document.getElementById('cal-notice-edit').style.display='block';
   document.getElementById('cal-notice-edit-btn').style.display='none';
@@ -982,43 +1037,83 @@ function cancelCalNoticeEdit(){
 function saveCalNotice(){
   if(!isAdminUp()) return;
   var notice = document.getElementById('cal-notice-ta').value.trim();
-  var before = CAL_NOTICE;
-  CAL_NOTICE = notice;
-  cacheSet(ckey('getCalNotice',{}), {ok:true, notice:notice});
+  var before = STATE.notice;
+  STATE.notice = notice;
   cancelCalNoticeEdit();
   renderCalNotice();
-  api('saveCalNotice', {pin:currentPin(), notice:notice}).then(function(res){
-    if(res.ok){ addLog('연차 공지 수정'); }
-    else{
-      CAL_NOTICE = before;
-      cacheSet(ckey('getCalNotice',{}), {ok:true, notice:before});
+  rpc('save_notice', {p_token:TOKEN(), p_notice:notice}).then(function(res){
+    if(res.ok){ cacheClear('boot|'); cacheClear('logs'); }
+    else {
+      STATE.notice = before;
       renderCalNotice();
-      alert(res.error||'저장 실패');
+      if(res.authExpired) handleAuthExpired();
+      else alert(res.error || '저장 실패');
     }
   });
 }
 
 // ══════════════════════════════════════════════════════════
-//  변경이력
+//  변경이력 — RPC가 자동으로 기록하므로 읽기만 한다
 // ══════════════════════════════════════════════════════════
 function loadLogs(){
-  apiSWR('getChangeLogs', {days:60}, function(r){
-    var list = document.getElementById('log-list');
-    if(!r || !r.ok || !r.logs || !r.logs.length){ list.innerHTML='<div class="empty">변경이력이 없습니다.</div>'; return; }
-    list.innerHTML = r.logs.map(function(l){
-      return '<div class="log-row"><div class="log-dt">'+esc(l.dt||'')+'</div><div>'+esc(l.desc||'')+'</div></div>';
-    }).join('');
-  }, SWR_TTL);
+  var since = new Date(Date.now() - 60*86400000).toISOString();
+  swr('logs',
+    function(){ return sbGet('change_logs?select=at,description&at=gte.'+encodeURIComponent(since)+'&order=at.desc&limit=500'); },
+    function(res){
+      var list = document.getElementById('log-list');
+      var rows = (res.ok && res.data) ? res.data : [];
+      if(!rows.length){
+        list.innerHTML = '<div class="empty">'+(res.ok ? '변경이력이 없습니다.' : esc(res.error))+'</div>';
+        return;
+      }
+      list.innerHTML = rows.map(function(l){
+        var d = new Date(l.at);
+        var dt = isNaN(d) ? '' : ymdLocal(d)+' '+pad2(d.getHours())+':'+pad2(d.getMinutes())+':'+pad2(d.getSeconds());
+        return '<div class="log-row"><div class="log-dt">'+esc(dt)+'</div><div>'+esc(l.description||'')+'</div></div>';
+      }).join('');
+    }, SWR_TTL);
 }
 
 // ══════════════════════════════════════════════════════════
-//  초기화 — 모든 조회를 동시에 발사 (직렬 대기 제거)
+//  렌더 묶음
+// ══════════════════════════════════════════════════════════
+function renderAll(){
+  refreshRoleUI();
+  renderCal();
+  renderEmpList();
+  renderCalNotice();
+}
+
+// ══════════════════════════════════════════════════════════
+//  최신 상태 유지
+//  화면으로 돌아오면 즉시 갱신하고, 보이는 동안만 주기적으로 확인한다.
+// ══════════════════════════════════════════════════════════
+var pollTimer = null;
+function startPolling(){
+  stopPolling();
+  pollTimer = setInterval(function(){
+    if(!document.hidden) fetchMonth(curYM(), true);
+  }, POLL_MS);
+}
+function stopPolling(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+document.addEventListener('visibilitychange', function(){
+  if(document.hidden){ stopPolling(); }
+  else { fetchMonth(curYM(), true); startPolling(); }
+});
+window.addEventListener('focus', function(){ ensureMonth(curYM()); });
+
+// ══════════════════════════════════════════════════════════
+//  초기화
 // ══════════════════════════════════════════════════════════
 (function boot(){
-  loadEmployees();    // ┐
-  loadCal();          // ├ 네 요청이 동시에 나가고,
-  loadCalNotice();    // │ 캐시가 있으면 화면은 그전에 이미 채워져 있다.
-  initRole();         // ┘
+  // 예전 버전이 localStorage에 남겨둔 평문 PIN 제거
+  try{ localStorage.removeItem('sch_pin'); }catch(e){}
+  if(!SUPABASE_URL || !SUPABASE_KEY){
+    reportError('index.html 상단의 SUPABASE_URL / SUPABASE_KEY를 채워주세요.');
+  }
+  renderAll();
+  fetchMonth(curYM());
+  startPolling();
 })();
 </script>
 </body>
