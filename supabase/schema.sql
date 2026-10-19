@@ -509,6 +509,128 @@ begin
   perform private.log('연차 공지 수정');
 end $$;
 
+-- ── 이관용 일괄 입력 (슈퍼관리자 전용) ──────────────────────────────
+--  브라우저 이관 도구(migrate.html)가 쓰는 함수들.
+--  이관이 끝나면 지워도 됩니다. 지우는 방법은 supabase/README.md 참고.
+-- ────────────────────────────────────────────────────────────────────
+create or replace function public.import_employees(p_token text, p_rows jsonb) returns integer
+  language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  perform private.require_role(p_token, 'super');
+  insert into public.employees (legacy_id, name, team, color, retired, retired_at)
+  select r->>'legacy_id',
+         btrim(r->>'name'),
+         coalesce(r->>'team', ''),
+         coalesce(r->>'color', '#3B6FE8'),
+         coalesce((r->>'retired')::boolean, false),
+         nullif(r->>'retired_at', '')::date
+    from jsonb_array_elements(p_rows) r
+   where btrim(coalesce(r->>'name','')) <> ''
+  on conflict (legacy_id) do update
+    set name = excluded.name, team = excluded.team, color = excluded.color,
+        retired = excluded.retired, retired_at = excluded.retired_at;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+create or replace function public.import_annual_types(p_token text, p_rows jsonb) returns integer
+  language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  perform private.require_role(p_token, 'super');
+  insert into public.annual_types (key, label, css_class, weekend_only, sort_order)
+  select r->>'key', coalesce(r->>'label', r->>'key'),
+         coalesce(r->>'css_class', 'cc-an'),
+         coalesce((r->>'weekend_only')::boolean, false),
+         coalesce((r->>'sort_order')::integer, 90)
+    from jsonb_array_elements(p_rows) r
+   where coalesce(r->>'key','') <> ''
+  on conflict (key) do nothing;     -- 기존 종류의 색상/순서는 건드리지 않는다
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- 직원과 연결된 연차. (emp_id, date) 기준으로 덮어쓴다.
+create or replace function public.import_annuals(p_token text, p_rows jsonb) returns integer
+  language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  perform private.require_role(p_token, 'super');
+  insert into public.annuals (emp_id, emp_name, date, type)
+  select (r->>'emp_id')::uuid, coalesce(r->>'emp_name',''),
+         (r->>'date')::date, r->>'type'
+    from jsonb_array_elements(p_rows) r
+   where coalesce(r->>'emp_id','') <> '' and coalesce(r->>'type','') <> ''
+  on conflict (emp_id, date) do update
+    set type = excluded.type, emp_name = excluded.emp_name;
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- 삭제된 직원의 기록. emp_id가 없어 유니크 제약이 걸리지 않으므로
+-- 같은 내용이 이미 있으면 건너뛴다 (여러 번 실행해도 중복이 생기지 않게).
+create or replace function public.import_orphan_annuals(p_token text, p_rows jsonb) returns integer
+  language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  perform private.require_role(p_token, 'super');
+  insert into public.annuals (emp_id, emp_name, date, type)
+  select null, src.emp_name, src.d, src.t
+    from (
+      select distinct coalesce(r->>'emp_name','') as emp_name,
+                      (r->>'date')::date as d, r->>'type' as t
+        from jsonb_array_elements(p_rows) r
+       where coalesce(r->>'type','') <> ''
+    ) src
+   where not exists (
+     select 1 from public.annuals a
+      where a.emp_id is null and a.emp_name = src.emp_name
+        and a.date = src.d and a.type = src.t);
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
+-- 공지 이관. save_notice와 달리 변경이력을 남기지 않는다.
+-- (이관 자체는 사람이 한 변경이 아니고, 여기서 이력을 남기면 바로 아래
+--  import_change_logs 가 "이미 이력이 있다"고 오판하게 된다)
+create or replace function public.import_notice(p_token text, p_notice text) returns void
+  language plpgsql security definer set search_path = '' as $$
+begin
+  perform private.require_role(p_token, 'super');
+  insert into public.settings (key, value) values ('cal_notice', coalesce(p_notice, ''))
+  on conflict (key) do update set value = excluded.value;
+end $$;
+
+-- 변경이력 이관. 같은 시각·같은 내용이 이미 있으면 건너뛴다.
+-- 테이블이 비어 있는지로 판단하지 않으므로, 앱을 이미 써서 이력이 쌓인
+-- 뒤에 실행해도 정확히 빠진 것만 채운다.
+create or replace function public.import_change_logs(p_token text, p_rows jsonb, p_replace boolean default false)
+  returns integer
+  language plpgsql security definer set search_path = '' as $$
+declare n integer;
+begin
+  perform private.require_role(p_token, 'super');
+  if p_replace then
+    delete from public.change_logs;
+  end if;
+  insert into public.change_logs (at, actor, description)
+  select src.at, src.actor, src.description
+    from (
+      select distinct
+             coalesce((r->>'at')::timestamptz, now()) as at,
+             coalesce(r->>'actor','') as actor,
+             r->>'description' as description
+        from jsonb_array_elements(p_rows) r
+       where coalesce(r->>'description','') <> ''
+    ) src
+   where not exists (
+     select 1 from public.change_logs c
+      where c.at = src.at and c.description = src.description);
+  get diagnostics n = row_count;
+  return n;
+end $$;
+
 -- ── 권한 ────────────────────────────────────────────────────────────
 revoke all on all functions in schema private from public, anon, authenticated;
 
@@ -525,7 +647,13 @@ begin
     'public.update_employee(text,uuid,text,text,text)',
     'public.set_employee_retired(text,uuid,boolean)',
     'public.delete_employee(text,uuid)',
-    'public.save_notice(text,text)'
+    'public.save_notice(text,text)',
+    'public.import_employees(text,jsonb)',
+    'public.import_annual_types(text,jsonb)',
+    'public.import_annuals(text,jsonb)',
+    'public.import_orphan_annuals(text,jsonb)',
+    'public.import_change_logs(text,jsonb,boolean)',
+    'public.import_notice(text,text)'
   ] loop
     execute format('revoke all on function %s from public', f);
     execute format('grant execute on function %s to anon, authenticated', f);

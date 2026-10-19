@@ -386,12 +386,17 @@ async function pool(items, limit, fn) {
         await rest('DELETE', 'change_logs?id=gt.0', { prefer: 'return=minimal' });
         ok('기존 변경이력 삭제');
       }
+      let unreadable = 0;
       const rows = srcLogs.map((l) => {
         // "2026-09-19 10:00:00" → UTC 아님. 한국 시간으로 해석한다.
+        // 읽을 수 없으면 고정값을 쓴다 (now()면 재실행 때 같은 줄이 또 쌓인다)
         const m = String(l.dt || '').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
-        const at = m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}+09:00` : new Date().toISOString();
+        if (!m) unreadable++;
+        const at = m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}+09:00`
+                     : '1970-01-01T00:00:00+00:00';
         return { at, actor: String(l.by || ''), description: String(l.desc) };
       });
+      if (unreadable) warn(`날짜를 읽을 수 없는 이력 ${unreadable}건은 1970-01-01로 기록합니다`);
       for (const part of chunk(rows, 500)) await insert('change_logs', part);
       ok(`변경이력 ${rows.length}건 반영`);
     }

@@ -61,115 +61,79 @@
 
 ## 5단계 — 데이터 이관 (10분)
 
-> ⚠️ **이 단계는 SQL Editor가 아닙니다.** Supabase 웹 화면에서는 할 수 없습니다.
-> 구글시트에서 데이터를 읽어와야 하는데, 그건 당신 PC에서 프로그램을 돌려야
-> 가능합니다. 터미널(명령 프롬프트)에서 한 줄 실행하는 작업입니다.
+브라우저에서 버튼으로 하는 방법과, 터미널에서 하는 방법 두 가지가 있습니다.
+**브라우저 방법을 권합니다** — 설치할 것도, 다룰 키도 없습니다.
 
-### 5-1. Node.js가 있는지 확인
+### 방법 A — 브라우저 (권장)
 
-터미널을 엽니다.
-- **Windows**: 시작 메뉴에 `powershell` 입력 → PowerShell
-- **Mac**: Spotlight(⌘+Space)에 `터미널` 입력
+**A-1. SQL을 한 번 더 실행**
 
-이렇게 쳐보세요:
+이관용 함수가 추가됐습니다. SQL Editor에서 `schema.sql` 전체를 **다시 한 번**
+붙여넣고 Run 하세요 (여러 번 실행해도 안전합니다). 맨 아래 표가 다시 나오면
+완료입니다.
+
+**A-2. 이관 페이지 열기**
+
+아래 주소를 브라우저에서 열고 `Ctrl+S`(Mac은 `⌘+S`)로 저장한 뒤,
+저장된 `migrate.html` 파일을 더블클릭하세요.
 
 ```
-node --version
+https://raw.githubusercontent.com/wooriwoosin/schedule-sh/claude/gas-url-performance-ccmabu/migrate.html
 ```
 
-`v18.0.0` 이상이 나오면 됩니다. "명령을 찾을 수 없습니다"가 나오면
-https://nodejs.org 에서 LTS 버전을 설치하고 터미널을 다시 여세요.
+**A-3. 화면에서 순서대로**
 
-### 5-2. 스크립트 파일 하나 받기
+1. 슈퍼관리자 PIN 입력 → **로그인**
+2. **확인해보기 (저장 안 함)** → 건수가 시트와 맞는지 확인
+3. **이관 실행** → 끝
 
-저장소 전체를 받을 필요 없이 **파일 하나**면 됩니다.
-터미널에서 (바탕화면에 받는 예시):
+마지막에 나오는 대조표를 그대로 알려주세요. 여러 번 눌러도 중복이 생기지
+않으니 마음 놓고 하셔도 됩니다.
 
-**Windows (PowerShell)**
-```powershell
-cd ~/Desktop
-curl.exe -L -o migrate.mjs "https://raw.githubusercontent.com/wooriwoosin/schedule-sh/claude/gas-url-performance-ccmabu/tools/migrate-gas-to-supabase.mjs"
-```
+### 방법 B — 터미널
 
-**Mac**
+Node.js 18 이상이 필요합니다.
+
 ```bash
-cd ~/Desktop
 curl -L -o migrate.mjs "https://raw.githubusercontent.com/wooriwoosin/schedule-sh/claude/gas-url-performance-ccmabu/tools/migrate-gas-to-supabase.mjs"
-```
 
-브라우저에서 위 주소를 열어 `Ctrl+S`로 `migrate.mjs` 라고 저장해도 됩니다.
-
-### 5-3. secret 키 복사
-
-Supabase 대시보드 → **Settings → API** → **secret** 키를 복사합니다.
-`sb_secret_…` 로 시작합니다.
-
-> publishable 키(`sb_publishable_…`)가 아닙니다. 잘못 넣으면 스크립트가
-> 시작하자마자 멈추고 알려주니, 데이터가 망가질 걱정은 없습니다.
-
-### 5-4. 먼저 건수만 확인 (아무것도 쓰지 않음)
-
-`sb_secret_...` 부분만 당신 키로 바꿔서, 한 줄로 실행합니다.
-Windows와 Mac 모두 똑같습니다:
-
-```
+# 건수만 확인
 node migrate.mjs --url=https://iwfiilgjiqkdsuybqwwk.supabase.co --key=sb_secret_... --dry-run
-```
 
-### 5-5. 건수가 맞으면 실제 실행
-
-`--dry-run` 만 빼면 됩니다:
-
-```
+# 실제 실행
 node migrate.mjs --url=https://iwfiilgjiqkdsuybqwwk.supabase.co --key=sb_secret_...
 ```
 
-### 알아두실 것
+Windows PowerShell에서는 `curl.exe` 를 쓰고, 한글이 깨지면 먼저
+`[Console]::OutputEncoding=[System.Text.Encoding]::UTF8` 를 실행하세요.
 
-- 연차는 기본 2024-01 ~ 내년 12월을 가져옵니다.
-  범위를 바꾸려면 `--from=2023-01 --to=2027-12` 를 덧붙이세요.
-- **여러 번 실행해도 안전합니다** (덮어쓰기만 하고 중복이 생기지 않습니다).
-- GAS 주소는 스크립트가 들고 있어서 따로 넣지 않아도 됩니다.
-- 키가 명령어에 그대로 들어가므로 터미널 기록에 남습니다. 공용 PC라면
-  작업 후 기록을 지우거나, 그 키를 대시보드에서 새로 발급받으세요.
+키는 **Settings → API 의 secret 키**입니다 (`sb_secret_…`).
+publishable 키를 넣으면 시작하자마자 멈추고 알려줍니다.
 
-### 출력에서 꼭 봐주실 두 군데
+### 두 방법이 똑같이 처리하는 것들
 
-**(1) 맨 위 — 키 전달 방식 확인**
-
-```
-0. Supabase 연결 및 키 확인
-  ✓ 쓰기 키 확인 (Authorization 헤더 미사용 · 신형 키)
-  ✓ index.html publishable 키 정상 (Authorization 헤더 불필요)
-```
-
-두 번째 줄에 `!` 경고가 뜨면 그 줄을 알려주세요. (이 환경에서는 Supabase에
-접속할 수 없어 확인하지 못한 부분을 여기서 대신 검증합니다.)
-
-> 파일 하나만 받아서 쓰면 `index.html` 이 옆에 없으므로 이 줄이 안 나옵니다.
-> 확인하려면 `--pub-key=sb_publishable_q3SLb7fToGXt9J4o7tkYOw_QArw7mQ9` 를
-> 덧붙이세요.
-
-**(2) 맨 아래 — 대조표**
-
-```
-5. 대조 확인
-  직원         시트      4  →  DB      4  일치
-  연차         시트    312  →  DB    312  일치
-  변경이력       시트     88  →  DB     88  일치
-```
-
-**맞지 않으면 그 출력을 그대로 알려주세요.**
-
-### 스크립트가 자동으로 처리하는 것들
-
-- 이름 앞의 `(퇴)` 접두어 제거 → `retired` 플래그로 대체
-  (화면에는 똑같이 `(퇴)`가 붙어 보입니다)
+- 이름 앞의 `(퇴)` 제거 → 퇴사 표시로 대체 (화면에는 똑같이 보입니다)
 - 색상 형식이 깨진 값 → 기본 파란색으로 보정
 - 같은 직원·같은 날짜 중복 → 1건으로 정리 (마지막 값이 남음)
 - 삭제된 직원의 연차 기록 → 이름만 보존해서 유지
-- 종류 테이블에 없는 유형 → **버리지 않고** 추가하고 경고 표시
-- 변경이력 시각 → 한국시간으로 해석해서 저장
+- 종류 목록에 없는 유형 → **버리지 않고** 추가하고 경고 표시
+- 변경이력 시각 → 한국시간으로 해석. 날짜를 읽을 수 없으면 1970-01-01로
+  기록합니다 (실행할 때마다 값이 달라져 같은 줄이 또 쌓이는 것을 막기 위함)
+- **여러 번 실행해도 중복이 생기지 않습니다**
+
+### 이관이 끝난 뒤 (선택)
+
+이관용 함수를 남겨두고 싶지 않으면 SQL Editor에서 지울 수 있습니다.
+슈퍼관리자만 호출할 수 있어 그대로 둬도 위험하지는 않습니다.
+
+```sql
+drop function if exists public.import_employees(text,jsonb);
+drop function if exists public.import_annual_types(text,jsonb);
+drop function if exists public.import_annuals(text,jsonb);
+drop function if exists public.import_orphan_annuals(text,jsonb);
+drop function if exists public.import_change_logs(text,jsonb,boolean);
+drop function if exists public.import_notice(text,text);
+```
 
 ---
 
