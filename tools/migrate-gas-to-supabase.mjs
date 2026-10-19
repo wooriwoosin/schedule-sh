@@ -6,20 +6,18 @@
  * Supabase에 넣습니다. 의존성 없음 — node 18 이상이면 그냥 돌아갑니다.
  *
  *   # 1) 먼저 건수만 확인 (아무것도 쓰지 않음)
- *   SUPABASE_URL=https://xxxx.supabase.co \
- *   SUPABASE_SERVICE_ROLE_KEY=eyJ... \
- *   node tools/migrate-gas-to-supabase.mjs --dry-run
+ *   node migrate-gas-to-supabase.mjs --url=https://xxxx.supabase.co --key=sb_secret_... --dry-run
  *
  *   # 2) 실제 이관
- *   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
- *   node tools/migrate-gas-to-supabase.mjs
+ *   node migrate-gas-to-supabase.mjs --url=https://xxxx.supabase.co --key=sb_secret_...
  *
  * 옵션
  *   --dry-run        읽기만 하고 쓰지 않음
  *   --from=2024-01   연차를 가져올 시작 월 (기본 2024-01)
  *   --to=2027-12     연차를 가져올 끝 월  (기본 올해+1년 12월)
  *   --redo-logs      변경이력을 지우고 다시 넣음 (기본: 이미 있으면 건너뜀)
- *   --gas-url=...    GAS 엔드포인트 직접 지정 (기본: index.html에서 읽음)
+ *   --gas-url=...    GAS 엔드포인트 직접 지정 (기본값이 들어 있음)
+ *   --pub-key=...    index.html의 publishable 키 (이 파일만 따로 받아 쓸 때)
  *
  * ⚠️ SUPABASE_SERVICE_ROLE_KEY 는 DB를 전부 열 수 있는 키입니다.
  *    이 스크립트를 당신 PC에서만 실행하고, 키를 코드나 깃에 넣지 마세요.
@@ -40,8 +38,11 @@ const opt  = (n, d) => {
 
 const DRY = flag('dry-run');
 const REDO_LOGS = flag('redo-logs');
-const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+// 환경변수 대신 --url= / --key= 로도 넣을 수 있다.
+// (Windows PowerShell·cmd 에서는 VAR=값 형태가 통하지 않는다)
+const SUPABASE_URL = String(opt('url', process.env.SUPABASE_URL || ''))
+  .replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
+const SERVICE_KEY  = opt('key', process.env.SUPABASE_SERVICE_ROLE_KEY || '');
 
 // index.html은 이미 Supabase로 전환돼 GAS_URL이 없다. 이관 전용 값이므로
 // 여기에 둔다. 다른 배포본에서 가져오려면 --gas-url=… 로 지정하면 된다.
@@ -49,7 +50,8 @@ const DEFAULT_GAS_URL =
   'https://script.google.com/macros/s/AKfycbwl-hvK6QffGot9hRIL_A_3AnT1b0p_lKt2tk6X-EsuJvjBdI5Oc8M_pubrlpPthy2X/exec';
 const GAS_URL = opt('gas-url', process.env.GAS_URL || DEFAULT_GAS_URL);
 
-// index.html에 들어 있는 publishable 키 (키 전달 방식 점검용)
+// index.html에 들어 있는 publishable 키 (키 전달 방식 점검용).
+// 이 파일만 따로 받아 쓰는 경우를 위해 --pub-key= 로도 넣을 수 있다.
 function publishableKeyFromIndexHtml() {
   try {
     const html = readFileSync(join(HERE, '..', 'index.html'), 'utf8');
@@ -57,6 +59,7 @@ function publishableKeyFromIndexHtml() {
     return m ? m[1] : '';
   } catch { return ''; }
 }
+const PUBLISHABLE_KEY = opt('pub-key', process.env.SUPABASE_PUBLISHABLE_KEY || '');
 
 const FROM = opt('from', '2024-01');
 const TO   = opt('to', (new Date().getFullYear() + 1) + '-12');
@@ -71,9 +74,11 @@ const die  = (s) => { say('\n' + C.r + '✗ ' + s + C.x + '\n'); process.exit(1)
 
 // ── 입력 검증 ─────────────────────────────────────────────────────────
 if (!GAS_URL)      die('GAS_URL을 찾을 수 없습니다. --gas-url=... 로 지정해주세요.');
-if (!SUPABASE_URL) die('SUPABASE_URL 환경변수가 필요합니다.');
-if (!SERVICE_KEY)  die('SUPABASE_SERVICE_ROLE_KEY 환경변수가 필요합니다.\n' +
-                       '  Supabase 대시보드 → Settings → API → service_role 키');
+if (!SUPABASE_URL) die('Supabase 주소가 필요합니다.\n' +
+                       '  --url=https://내프로젝트.supabase.co 를 붙여주세요.');
+if (!SERVICE_KEY)  die('Supabase secret 키가 필요합니다.\n' +
+                       '  --key=sb_secret_... 를 붙여주세요.\n' +
+                       '  대시보드 → Settings → API 의 secret 키입니다 (publishable 키가 아닙니다).');
 if (!/^\d{4}-\d{2}$/.test(FROM) || !/^\d{4}-\d{2}$/.test(TO)) die('--from / --to 는 YYYY-MM 형식이어야 합니다.');
 
 // ── GAS 호출 ──────────────────────────────────────────────────────────
@@ -231,7 +236,7 @@ async function pool(items, limit, fn) {
 
   // index.html이 쓰는 publishable 키도 같이 점검한다.
   // (이 컨테이너에서는 Supabase에 접속할 수 없어 확인하지 못한 부분)
-  const pub = publishableKeyFromIndexHtml();
+  const pub = PUBLISHABLE_KEY || publishableKeyFromIndexHtml();
   if (pub && pub !== SERVICE_KEY) {
     const pr = await probeReadKey(pub);
     if (pr.bearer === null) {

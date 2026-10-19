@@ -61,38 +61,107 @@
 
 ## 5단계 — 데이터 이관 (10분)
 
-당신 PC에서, 이 저장소를 받아둔 폴더에서 실행합니다. node 18 이상이면
-설치할 게 없습니다.
+> ⚠️ **이 단계는 SQL Editor가 아닙니다.** Supabase 웹 화면에서는 할 수 없습니다.
+> 구글시트에서 데이터를 읽어와야 하는데, 그건 당신 PC에서 프로그램을 돌려야
+> 가능합니다. 터미널(명령 프롬프트)에서 한 줄 실행하는 작업입니다.
 
-```bash
-# 먼저 이 브랜치를 받아둡니다
-git fetch origin claude/gas-url-performance-ccmabu
-git checkout claude/gas-url-performance-ccmabu
+### 5-1. Node.js가 있는지 확인
 
-# (1) 건수만 확인 — 아무것도 쓰지 않습니다
-SUPABASE_URL=https://iwfiilgjiqkdsuybqwwk.supabase.co \
-SUPABASE_SERVICE_ROLE_KEY=sb_secret_... \
-node tools/migrate-gas-to-supabase.mjs --dry-run
+터미널을 엽니다.
+- **Windows**: 시작 메뉴에 `powershell` 입력 → PowerShell
+- **Mac**: Spotlight(⌘+Space)에 `터미널` 입력
 
-# (2) 출력된 건수가 시트와 맞으면, --dry-run 을 빼고 실제 실행
-SUPABASE_URL=https://iwfiilgjiqkdsuybqwwk.supabase.co \
-SUPABASE_SERVICE_ROLE_KEY=sb_secret_... \
-node tools/migrate-gas-to-supabase.mjs
+이렇게 쳐보세요:
+
+```
+node --version
 ```
 
-- 키는 **Settings → API** 의 **secret** 키입니다. 신형이면 `sb_secret_…`,
-  구형이면 `service_role` 의 `eyJ…` 입니다. 둘 다 자동으로 처리합니다.
-- publishable 키를 넣으면 시작하자마자 "이 키로는 쓰기를 할 수 없습니다"
-  라고 멈춥니다. 데이터는 건드리지 않으니 안심하고 다시 실행하세요.
-- 키는 터미널에만 넣고, 파일이나 깃에 저장하지 마세요.
-- GAS 주소는 스크립트가 들고 있어서 따로 넣지 않아도 됩니다.
-- 연차는 기본 2024-01 ~ 내년 12월을 가져옵니다.
-  범위를 바꾸려면 `--from=2023-01 --to=2027-12`.
-- **여러 번 실행해도 안전합니다** (덮어쓰기만 하고 중복이 생기지 않습니다).
-- 마지막에 시트 건수와 DB 건수를 나란히 보여줍니다.
-  **맞지 않으면 그 출력을 그대로 Claude에게 주세요.**
+`v18.0.0` 이상이 나오면 됩니다. "명령을 찾을 수 없습니다"가 나오면
+https://nodejs.org 에서 LTS 버전을 설치하고 터미널을 다시 여세요.
 
-스크립트가 자동으로 처리하는 것들:
+### 5-2. 스크립트 파일 하나 받기
+
+저장소 전체를 받을 필요 없이 **파일 하나**면 됩니다.
+터미널에서 (바탕화면에 받는 예시):
+
+**Windows (PowerShell)**
+```powershell
+cd ~/Desktop
+curl.exe -L -o migrate.mjs "https://raw.githubusercontent.com/wooriwoosin/schedule-sh/claude/gas-url-performance-ccmabu/tools/migrate-gas-to-supabase.mjs"
+```
+
+**Mac**
+```bash
+cd ~/Desktop
+curl -L -o migrate.mjs "https://raw.githubusercontent.com/wooriwoosin/schedule-sh/claude/gas-url-performance-ccmabu/tools/migrate-gas-to-supabase.mjs"
+```
+
+브라우저에서 위 주소를 열어 `Ctrl+S`로 `migrate.mjs` 라고 저장해도 됩니다.
+
+### 5-3. secret 키 복사
+
+Supabase 대시보드 → **Settings → API** → **secret** 키를 복사합니다.
+`sb_secret_…` 로 시작합니다.
+
+> publishable 키(`sb_publishable_…`)가 아닙니다. 잘못 넣으면 스크립트가
+> 시작하자마자 멈추고 알려주니, 데이터가 망가질 걱정은 없습니다.
+
+### 5-4. 먼저 건수만 확인 (아무것도 쓰지 않음)
+
+`sb_secret_...` 부분만 당신 키로 바꿔서, 한 줄로 실행합니다.
+Windows와 Mac 모두 똑같습니다:
+
+```
+node migrate.mjs --url=https://iwfiilgjiqkdsuybqwwk.supabase.co --key=sb_secret_... --dry-run
+```
+
+### 5-5. 건수가 맞으면 실제 실행
+
+`--dry-run` 만 빼면 됩니다:
+
+```
+node migrate.mjs --url=https://iwfiilgjiqkdsuybqwwk.supabase.co --key=sb_secret_...
+```
+
+### 알아두실 것
+
+- 연차는 기본 2024-01 ~ 내년 12월을 가져옵니다.
+  범위를 바꾸려면 `--from=2023-01 --to=2027-12` 를 덧붙이세요.
+- **여러 번 실행해도 안전합니다** (덮어쓰기만 하고 중복이 생기지 않습니다).
+- GAS 주소는 스크립트가 들고 있어서 따로 넣지 않아도 됩니다.
+- 키가 명령어에 그대로 들어가므로 터미널 기록에 남습니다. 공용 PC라면
+  작업 후 기록을 지우거나, 그 키를 대시보드에서 새로 발급받으세요.
+
+### 출력에서 꼭 봐주실 두 군데
+
+**(1) 맨 위 — 키 전달 방식 확인**
+
+```
+0. Supabase 연결 및 키 확인
+  ✓ 쓰기 키 확인 (Authorization 헤더 미사용 · 신형 키)
+  ✓ index.html publishable 키 정상 (Authorization 헤더 불필요)
+```
+
+두 번째 줄에 `!` 경고가 뜨면 그 줄을 알려주세요. (이 환경에서는 Supabase에
+접속할 수 없어 확인하지 못한 부분을 여기서 대신 검증합니다.)
+
+> 파일 하나만 받아서 쓰면 `index.html` 이 옆에 없으므로 이 줄이 안 나옵니다.
+> 확인하려면 `--pub-key=sb_publishable_q3SLb7fToGXt9J4o7tkYOw_QArw7mQ9` 를
+> 덧붙이세요.
+
+**(2) 맨 아래 — 대조표**
+
+```
+5. 대조 확인
+  직원         시트      4  →  DB      4  일치
+  연차         시트    312  →  DB    312  일치
+  변경이력       시트     88  →  DB     88  일치
+```
+
+**맞지 않으면 그 출력을 그대로 알려주세요.**
+
+### 스크립트가 자동으로 처리하는 것들
 
 - 이름 앞의 `(퇴)` 접두어 제거 → `retired` 플래그로 대체
   (화면에는 똑같이 `(퇴)`가 붙어 보입니다)
