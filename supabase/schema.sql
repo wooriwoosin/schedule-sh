@@ -551,15 +551,11 @@ begin
 end $$;
 
 -- ───────────────────────────────────────────────────────────────────────
---  7. 관리자 PIN 설정  ⚠️ 여기만 직접 고쳐서 실행하세요
+--  7. 관리자 PIN 설정 함수
 --
---  아래 두 줄의 '바꾸세요' 부분을 원하는 PIN으로 바꾸고 실행하면 됩니다.
---  · 8자 이상을 권장합니다 (짧으면 대입 공격에 약합니다)
---  · 저장되는 건 bcrypt 해시뿐이라 나중에 PIN을 다시 볼 수는 없습니다.
---    잊으면 이 두 줄을 새 PIN으로 다시 실행하면 됩니다.
---
---  select private.set_pin('super', '바꾸세요_슈퍼관리자PIN');
---  select private.set_pin('admin', '바꾸세요_관리자PIN');
+--  이 파일을 실행하면 "함수만" 만들어집니다. PIN 자체는 설정되지 않습니다.
+--  PIN은 이 파일을 다 돌린 뒤, 맨 아래 결과가 알려주는 두 줄을
+--  New query 로 따로 실행해서 넣습니다.
 -- ───────────────────────────────────────────────────────────────────────
 create or replace function private.set_pin(p_role text, p_pin text) returns text
   language plpgsql security definer set search_path = '' as $$
@@ -577,3 +573,19 @@ begin
 end $$;
 
 revoke all on function private.set_pin(text,text) from public, anon, authenticated;
+
+-- ───────────────────────────────────────────────────────────────────────
+--  8. 마무리 점검
+--  이 파일의 마지막 결과로 현재 상태와 다음에 할 일을 보여줍니다.
+-- ───────────────────────────────────────────────────────────────────────
+select
+  (select count(*) from public.annual_types) as "연차종류",
+  (select count(*) from public.employees)    as "직원",
+  (select count(*) from public.annuals)      as "연차기록",
+  (select count(*) from private.admin_pins)  as "설정된PIN",
+  case when exists (select 1 from private.admin_pins)
+    then 'PIN까지 준비됐습니다. 다음은 5단계 데이터 이관입니다.'
+    else '⚠️ PIN이 아직 없습니다. New query 로 아래 두 줄을 실행하세요 (PIN은 원하는 값으로, 8자 이상 권장): '
+         || 'select private.set_pin(''super'', ''슈퍼관리자PIN''); '
+         || 'select private.set_pin(''admin'', ''관리자PIN'');'
+  end as "다음 할 일";
