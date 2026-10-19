@@ -43,14 +43,20 @@ const REDO_LOGS = flag('redo-logs');
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-function gasUrlFromIndexHtml() {
+// index.html은 이미 Supabase로 전환돼 GAS_URL이 없다. 이관 전용 값이므로
+// 여기에 둔다. 다른 배포본에서 가져오려면 --gas-url=… 로 지정하면 된다.
+const DEFAULT_GAS_URL =
+  'https://script.google.com/macros/s/AKfycbwl-hvK6QffGot9hRIL_A_3AnT1b0p_lKt2tk6X-EsuJvjBdI5Oc8M_pubrlpPthy2X/exec';
+const GAS_URL = opt('gas-url', process.env.GAS_URL || DEFAULT_GAS_URL);
+
+// index.html에 들어 있는 publishable 키 (키 전달 방식 점검용)
+function publishableKeyFromIndexHtml() {
   try {
     const html = readFileSync(join(HERE, '..', 'index.html'), 'utf8');
-    const m = html.match(/var GAS_URL = '([^']+)'/);
+    const m = html.match(/var SUPABASE_KEY = '([^']+)'/);
     return m ? m[1] : '';
   } catch { return ''; }
 }
-const GAS_URL = opt('gas-url', process.env.GAS_URL || gasUrlFromIndexHtml());
 
 const FROM = opt('from', '2024-01');
 const TO   = opt('to', (new Date().getFullYear() + 1) + '-12');
@@ -90,15 +96,63 @@ async function gas(action, data = {}) {
 }
 
 // ── Supabase REST ─────────────────────────────────────────────────────
+// 구형 키(eyJ…)는 JWT라 Authorization: Bearer 로도 보내지만, 신형 키
+// (sb_secret_… / sb_publishable_…)는 JWT가 아니어서 Bearer로 보내면 인증
+// 계층이 JWT 파싱에 실패할 수 있다. 추측하지 않고 실제로 찔러보고 정한다.
+let USE_BEARER = /^eyJ/.test(SERVICE_KEY);
+
+function headersFor(key, bearer, extra) {
+  return {
+    apikey: key,
+    'Content-Type': 'application/json',
+    ...(bearer ? { Authorization: `Bearer ${key}` } : {}),
+    ...(extra || {}),
+  };
+}
+
+// 쓰기 권한까지 확인하는 점검. 조건에 맞는 행이 없어 아무것도 바꾸지 않지만
+// UPDATE 권한이 없으면 거부되므로, 키가 "받아들여졌는지"가 아니라
+// "쓸 수 있는지"를 가린다.
+async function probeWriteKey(key) {
+  const order = /^eyJ/.test(key) ? [true, false] : [false, true];
+  let detail = '';
+  for (const bearer of order) {
+    let r;
+    try {
+      r = await fetch(`${SUPABASE_URL}/rest/v1/settings?key=eq.__migrate_probe__`, {
+        method: 'PATCH',
+        headers: headersFor(key, bearer, { Prefer: 'return=minimal' }),
+        body: JSON.stringify({ value: '' }),
+      });
+    } catch (e) {
+      // 주소 자체에 닿지 못한 경우 — 키 문제가 아니므로 바로 알린다
+      die(`Supabase에 접속할 수 없습니다: ${SUPABASE_URL}\n  ${e.message}\n\n` +
+          '  · SUPABASE_URL 이 맞는지 확인하세요 (예: https://xxxx.supabase.co)\n' +
+          '  · 인터넷 연결과 사내 방화벽을 확인하세요');
+    }
+    if (r.ok) return { bearer, detail: null };
+    detail = `${r.status} ${(await r.text()).slice(0, 200)}`;
+  }
+  return { bearer: null, detail };
+}
+
+// 조회만 되는지 확인 (publishable 키용)
+async function probeReadKey(key) {
+  for (const bearer of [false, true]) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/annual_types?select=key&limit=1`, {
+        headers: headersFor(key, bearer),
+      });
+      if (r.ok) return { bearer };
+    } catch { /* 점검용이므로 실패해도 넘어간다 */ }
+  }
+  return { bearer: null };
+}
+
 async function rest(method, path, { body, prefer } = {}) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method,
-    headers: {
-      apikey: SERVICE_KEY,
-      Authorization: `Bearer ${SERVICE_KEY}`,
-      'Content-Type': 'application/json',
-      ...(prefer ? { Prefer: prefer } : {}),
-    },
+    headers: headersFor(SERVICE_KEY, USE_BEARER, prefer ? { Prefer: prefer } : null),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const text = await r.text();
@@ -149,16 +203,45 @@ async function pool(items, limit, fn) {
   if (DRY) say(C.y + '  [--dry-run] 읽기만 합니다. 아무것도 쓰지 않습니다.' + C.x);
 
   // ── 스키마가 적용됐는지 먼저 확인 ─────────────────────────────────
-  step('0. Supabase 연결 및 스키마 확인');
+  step('0. Supabase 연결 및 키 확인');
+
+  // 어떤 방식으로 키를 보내야 하는지 추측하지 않고 실제로 확인한다
+  const probe = await probeWriteKey(SERVICE_KEY);
+  if (probe.bearer === null) {
+    die('이 키로는 쓰기를 할 수 없습니다.\n  마지막 응답: ' + probe.detail + '\n\n' +
+        '  · Settings → API 의 secret 키인지 확인하세요\n' +
+        '    (신형이면 sb_secret_… / 구형이면 service_role 의 eyJ… 로 시작)\n' +
+        '  · publishable(anon) 키로는 쓸 수 없습니다. 그게 정상입니다.\n' +
+        '  · supabase/schema.sql 을 SQL Editor에서 먼저 실행했는지 확인하세요');
+  }
+  USE_BEARER = probe.bearer;
+  ok(`쓰기 키 확인 (Authorization 헤더 ${USE_BEARER ? '사용' : '미사용'} · ` +
+     `${/^eyJ/.test(SERVICE_KEY) ? '구형 JWT' : '신형'} 키)`);
+
+  let knownTypes;
   try {
     const types = await select('annual_types?select=key');
     if (!types.length) die('annual_types 가 비어 있습니다. supabase/schema.sql 을 먼저 실행해주세요.');
-    ok(`연결 성공 · 연차 종류 ${types.length}개 등록돼 있음`);
-    var knownTypes = new Set(types.map((t) => t.key));
+    ok(`스키마 확인 · 연차 종류 ${types.length}개`);
+    knownTypes = new Set(types.map((t) => t.key));
   } catch (e) {
-    die(`Supabase에 연결할 수 없습니다.\n  ${e.message}\n\n` +
-        '  · SUPABASE_URL / SERVICE_ROLE_KEY 를 확인하세요\n' +
-        '  · supabase/schema.sql 을 SQL Editor에서 먼저 실행했는지 확인하세요');
+    die(`스키마를 읽을 수 없습니다.\n  ${e.message}\n` +
+        '  supabase/schema.sql 을 SQL Editor에서 먼저 실행했는지 확인하세요.');
+  }
+
+  // index.html이 쓰는 publishable 키도 같이 점검한다.
+  // (이 컨테이너에서는 Supabase에 접속할 수 없어 확인하지 못한 부분)
+  const pub = publishableKeyFromIndexHtml();
+  if (pub && pub !== SERVICE_KEY) {
+    const pr = await probeReadKey(pub);
+    if (pr.bearer === null) {
+      warn('index.html 의 publishable 키로는 조회가 되지 않습니다. 이 줄을 Claude에게 알려주세요.');
+    } else {
+      ok(`index.html publishable 키 정상 (Authorization 헤더 ${pr.bearer ? '필요' : '불필요'})`);
+      if (pr.bearer && !/^eyJ/.test(pub)) {
+        warn('index.html 이 Authorization 헤더를 보내지 않도록 돼 있습니다. 이 줄을 Claude에게 알려주세요.');
+      }
+    }
   }
 
   // ── 1. 직원 ───────────────────────────────────────────────────────
@@ -319,7 +402,7 @@ async function pool(items, limit, fn) {
   const count = async (t) => {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${t}?select=*`, {
       method: 'HEAD',
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, Prefer: 'count=exact' },
+      headers: headersFor(SERVICE_KEY, USE_BEARER, { Prefer: 'count=exact' }),
     });
     return Number((r.headers.get('content-range') || '/0').split('/')[1]) || 0;
   };

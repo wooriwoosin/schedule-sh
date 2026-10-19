@@ -65,19 +65,27 @@
 설치할 게 없습니다.
 
 ```bash
-# (1) 먼저 건수만 확인 — 아무것도 쓰지 않습니다
-SUPABASE_URL=https://내프로젝트.supabase.co \
-SUPABASE_SERVICE_ROLE_KEY=eyJ... \
+# 먼저 이 브랜치를 받아둡니다
+git fetch origin claude/gas-url-performance-ccmabu
+git checkout claude/gas-url-performance-ccmabu
+
+# (1) 건수만 확인 — 아무것도 쓰지 않습니다
+SUPABASE_URL=https://iwfiilgjiqkdsuybqwwk.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_... \
 node tools/migrate-gas-to-supabase.mjs --dry-run
 
 # (2) 출력된 건수가 시트와 맞으면, --dry-run 을 빼고 실제 실행
-SUPABASE_URL=https://내프로젝트.supabase.co \
-SUPABASE_SERVICE_ROLE_KEY=eyJ... \
+SUPABASE_URL=https://iwfiilgjiqkdsuybqwwk.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_... \
 node tools/migrate-gas-to-supabase.mjs
 ```
 
-- `service_role` 키는 **Settings → API → service_role** 에 있습니다.
-  터미널에만 넣고, 파일이나 깃에 저장하지 마세요.
+- 키는 **Settings → API** 의 **secret** 키입니다. 신형이면 `sb_secret_…`,
+  구형이면 `service_role` 의 `eyJ…` 입니다. 둘 다 자동으로 처리합니다.
+- publishable 키를 넣으면 시작하자마자 "이 키로는 쓰기를 할 수 없습니다"
+  라고 멈춥니다. 데이터는 건드리지 않으니 안심하고 다시 실행하세요.
+- 키는 터미널에만 넣고, 파일이나 깃에 저장하지 마세요.
+- GAS 주소는 스크립트가 들고 있어서 따로 넣지 않아도 됩니다.
 - 연차는 기본 2024-01 ~ 내년 12월을 가져옵니다.
   범위를 바꾸려면 `--from=2023-01 --to=2027-12`.
 - **여러 번 실행해도 안전합니다** (덮어쓰기만 하고 중복이 생기지 않습니다).
@@ -175,7 +183,24 @@ PIN 검증(bcrypt)은 **로그인할 때 한 번만** 하고, 30일짜리 세션
 PIN 해시와 세션은 `private` 스키마에 있고, Supabase는 `public` 스키마만
 API로 공개하므로 네트워크에서 접근 자체가 불가능합니다.
 
-### 아직 확인하지 못한 것 하나
+### 키 전달 방식 — 5단계가 대신 확인해 줍니다
+
+신형 키(`sb_publishable_…` / `sb_secret_…`)는 JWT가 아니라서
+`Authorization: Bearer` 로 보내면 안 됩니다. 이 환경에서는 Supabase에
+접속할 수 없어 확인하지 못했기 때문에, 이관 스크립트가 **두 방식을 모두
+시도해서 맞는 쪽을 고르도록** 만들었습니다.
+
+5단계를 실행하면 0번 항목에 이런 줄이 나옵니다:
+
+```
+✓ 쓰기 키 확인 (Authorization 헤더 미사용 · 신형 키)
+✓ index.html publishable 키 정상 (Authorization 헤더 불필요)
+```
+
+두 번째 줄이 `정상`이면 `index.html` 설정이 맞는 것입니다.
+`!` 경고가 보이면 그 줄을 그대로 알려주세요. 바로 고치겠습니다.
+
+### 그 밖에 확인하지 못한 것
 
 당신이 준 키는 신형 **publishable 키**(`sb_publishable_…`)입니다. 구형
 `anon` 키와 달리 JWT가 아니라서, `Authorization: Bearer`로 보내면 인증
