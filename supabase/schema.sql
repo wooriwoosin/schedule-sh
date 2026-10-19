@@ -681,9 +681,19 @@ end $$;
 -- ───────────────────────────────────────────────────────────────────────
 --  7. 관리자 PIN 설정 함수
 --
---  이 파일을 실행하면 "함수만" 만들어집니다. PIN 자체는 설정되지 않습니다.
---  PIN은 이 파일을 다 돌린 뒤, 맨 아래 결과가 알려주는 두 줄을
---  New query 로 따로 실행해서 넣습니다.
+--  ⚠️ 이 파일에 실제 PIN을 적지 마세요.
+--     이 파일은 PIN을 넣는 곳이 아니라 set_pin "함수"를 만드는 곳입니다.
+--     여기에 PIN을 적어도 설정되지 않고, 파일이 깃에 올라가면 PIN이
+--     그대로 공개됩니다.
+--
+--  PIN은 이 파일을 다 돌린 뒤, SQL Editor에서 New query 를 새로 열고
+--  아래 두 줄을 실행해서 넣습니다 (이 주석을 고치는 게 아닙니다):
+--
+--     select private.set_pin('super', '원하는_PIN');
+--     select private.set_pin('admin', '원하는_PIN');
+--
+--  저장되는 건 bcrypt 해시뿐이라 나중에 PIN을 다시 볼 수는 없습니다.
+--  잊으면 위 두 줄을 새 PIN으로 다시 실행하면 됩니다.
 -- ───────────────────────────────────────────────────────────────────────
 create or replace function private.set_pin(p_role text, p_pin text) returns text
   language plpgsql security definer set search_path = '' as $$
@@ -713,7 +723,8 @@ select
   (select count(*) from private.admin_pins)  as "설정된PIN",
   case when exists (select 1 from private.admin_pins)
     then 'PIN까지 준비됐습니다. 다음은 5단계 데이터 이관입니다.'
-    else '⚠️ PIN이 아직 없습니다. New query 로 아래 두 줄을 실행하세요 (PIN은 원하는 값으로, 8자 이상 권장): '
-         || 'select private.set_pin(''super'', ''슈퍼관리자PIN''); '
-         || 'select private.set_pin(''admin'', ''관리자PIN'');'
+    else '⚠️ PIN이 아직 없습니다. 이 파일을 고치지 마세요 — 고쳐도 설정되지 않습니다. '
+         || 'SQL Editor에서 New query 를 새로 열고, 아래 두 줄을 붙여넣어 PIN만 바꿔 Run 하세요 → '
+         || 'select private.set_pin(''super'', ''여기에_원하는_PIN''); '
+         || 'select private.set_pin(''admin'', ''여기에_원하는_PIN'');'
   end as "다음 할 일";
