@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>구글시트 → Supabase 이관</title>
+<script>
+// ══════════════════════════════════════════════════════════
+//  설정 — index.html과 같은 값입니다
+// ══════════════════════════════════════════════════════════
+var SUPABASE_URL = 'https://iwfiilgjiqkdsuybqwwk.supabase.co';
+var SUPABASE_KEY = 'sb_publishable_q3SLb7fToGXt9J4o7tkYOw_QArw7mQ9';
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbwl-hvK6QffGot9hRIL_A_3AnT1b0p_lKt2tk6X-EsuJvjBdI5Oc8M_pubrlpPthy2X/exec';
+SUPABASE_URL = String(SUPABASE_URL).replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
+</script>
+<style>
+:root{--bg:#F7F8FA;--s:#FFF;--b:#E4E6EA;--tp:#1A1D23;--ts:#5A6170;--tm:#9BA3AF;
+      --ac:#3B6FE8;--ad:#2A52C4;--ok:#1D9E75;--okl:#E1F5EE;--wn:#BA7517;--wnl:#FAEEDA;
+      --dg:#A32D2D;--dgl:#FCEBEB;--r:10px;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);
+     color:var(--tp);font-size:15px;line-height:1.6;padding:24px 16px 60px;}
+.wrap{max-width:720px;margin:0 auto;}
+h1{font-size:20px;font-weight:600;letter-spacing:-.3px;margin-bottom:6px;}
+.sub{font-size:13px;color:var(--tm);margin-bottom:20px;}
+.card{background:var(--s);border:1px solid var(--b);border-radius:14px;padding:20px;
+      box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:16px;}
+.step{font-size:12px;font-weight:600;color:var(--ac);letter-spacing:.3px;margin-bottom:8px;}
+h2{font-size:15px;font-weight:600;margin-bottom:12px;}
+label{display:block;font-size:13px;font-weight:500;color:var(--ts);margin-bottom:5px;}
+input{width:100%;padding:11px 13px;border:1.5px solid var(--b);border-radius:var(--r);
+      font-size:15px;background:var(--bg);color:var(--tp);outline:none;font-family:inherit;}
+input:focus{border-color:var(--ac);background:#fff;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 18px;
+     border-radius:var(--r);font-size:14px;font-weight:500;cursor:pointer;border:none;
+     font-family:inherit;line-height:1;transition:background .15s;}
+.btn-pr{background:var(--ac);color:#fff;}.btn-pr:hover{background:var(--ad);}
+.btn-ok{background:var(--ok);color:#fff;}
+.btn:disabled{opacity:.45;cursor:not-allowed;}
+.btn-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:14px;}
+.al{padding:11px 14px;border-radius:10px;font-size:13px;margin-top:12px;display:none;}
+.al.on{display:block;}
+.al-er{background:var(--dgl);color:var(--dg);border:1px solid #F7C1C1;}
+.al-ok{background:var(--okl);color:var(--ok);border:1px solid #A8DCC8;}
+.al-wn{background:var(--wnl);color:var(--wn);border:1px solid #FAC775;}
+#log{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;
+     line-height:1.75;background:#1A1D23;color:#D7DAE0;border-radius:10px;padding:14px 16px;
+     max-height:340px;overflow:auto;white-space:pre-wrap;word-break:break-all;display:none;}
+#log.on{display:block;}
+.lg-ok{color:#5BD6A6;}.lg-wn{color:#F0C070;}.lg-er{color:#FF8E8E;}.lg-dim{color:#7A828F;}
+.lg-hd{color:#8FB4FF;font-weight:600;}
+table{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px;display:none;}
+table.on{display:table;}
+th,td{padding:8px 10px;border-bottom:1px solid var(--b);text-align:left;}
+th{font-size:12px;color:var(--tm);font-weight:600;}
+td.num{text-align:right;font-variant-numeric:tabular-nums;}
+.ok-badge{color:var(--ok);font-weight:600;}.bad-badge{color:var(--dg);font-weight:600;}
+.hint{font-size:12px;color:var(--tm);margin-top:8px;}
+.done{display:none;}.done.on{display:block;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>구글시트 → Supabase 이관</h1>
+  <div class="sub">기존 스케줄 데이터를 새 데이터베이스로 옮깁니다. 한 번만 하면 됩니다.</div>
+
+  <div class="card">
+    <div class="step">1단계</div>
+    <h2>관리자 로그인</h2>
+    <label for="pin">슈퍼관리자 PIN</label>
+    <input id="pin" type="password" placeholder="PIN 입력" autocomplete="off">
+    <div class="btn-row">
+      <button class="btn btn-pr" id="login-btn">로그인</button>
+      <span id="login-state" style="font-size:13px;color:var(--tm)"></span>
+    </div>
+    <div class="al al-er" id="login-err"></div>
+    <div class="hint">SQL Editor에서 <code>set_pin('super', …)</code>로 설정한 PIN입니다.</div>
+  </div>
+
+  <div class="card">
+    <div class="step">2단계</div>
+    <h2>먼저 확인해보기</h2>
+    <div style="font-size:13px;color:var(--ts)">
+      구글시트에서 데이터를 읽어 건수만 세어봅니다. <b>아무것도 저장하지 않습니다.</b>
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-pr" id="dry-btn" disabled>확인해보기 (저장 안 함)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="step">3단계</div>
+    <h2>실제로 옮기기</h2>
+    <div style="font-size:13px;color:var(--ts)">
+      2단계 건수가 맞으면 누르세요. 여러 번 눌러도 중복이 생기지 않습니다.
+    </div>
+    <div class="btn-row">
+      <button class="btn btn-ok" id="run-btn" disabled>이관 실행</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>진행 상황</h2>
+    <div id="log"></div>
+    <table id="tbl">
+      <thead><tr><th>항목</th><th class="num">구글시트</th><th class="num">Supabase</th><th>결과</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="al al-ok done" id="done-msg"></div>
+    <div id="idle" style="font-size:13px;color:var(--tm)">아직 실행하지 않았습니다.</div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+//  화면 출력
+// ══════════════════════════════════════════════════════════
+var logEl = document.getElementById('log');
+function show(el, on){ el.classList[on?'add':'remove']('on'); }
+function logLine(text, cls){
+  show(logEl, true);
+  document.getElementById('idle').style.display = 'none';
+  var d = document.createElement('div');
+  if(cls) d.className = cls;
+  d.textContent = text;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+var head = function(t){ logLine('', ''); logLine(t, 'lg-hd'); };
+var ok   = function(t){ logLine('  ✓ '+t, 'lg-ok'); };
+var warn = function(t){ logLine('  ! '+t, 'lg-wn'); };
+var dim  = function(t){ logLine('  '+t, 'lg-dim'); };
+function fail(t){
+  logLine('', '');
+  logLine('✗ '+t, 'lg-er');
+  busy(false);
+  throw new Error(t);
+}
+
+// ══════════════════════════════════════════════════════════
+//  통신
+// ══════════════════════════════════════════════════════════
+// 신형 publishable 키는 JWT가 아니므로 Bearer로 보내지 않는다.
+function sbHeaders(){
+  var h = {apikey:SUPABASE_KEY, 'Content-Type':'application/json'};
+  if(/^eyJ/.test(SUPABASE_KEY)) h.Authorization = 'Bearer ' + SUPABASE_KEY;
+  return h;
+}
+function sb(path, opts){
+  opts = opts || {};
+  return fetch(SUPABASE_URL+'/rest/v1/'+path, {
+    method: opts.method||'GET', headers: sbHeaders(),
+    body: opts.body===undefined ? undefined : JSON.stringify(opts.body)
+  }).then(function(r){
+    return r.text().then(function(t){
+      var data=null; try{ data = t ? JSON.parse(t) : null; }catch(e){}
+      if(r.ok) return data;
+      var msg = (data && (data.message||data.hint)) || ('HTTP '+r.status);
+      throw new Error(msg);
+    });
+  });
+}
+function rpc(fn, args){ return sb('rpc/'+fn, {method:'POST', body:args||{}}); }
+
+function gas(action, data){
+  var body = JSON.stringify(Object.assign({action:action}, data||{}));
+  var tries = 0;
+  function attempt(){
+    tries++;
+    return fetch(GAS_URL, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:body
+    }).then(function(r){ return r.json(); })
+      .then(function(j){
+        if(j && j.ok === false) throw new Error(j.error || 'GAS가 ok:false 를 반환');
+        return j;
+      })
+      .catch(function(e){
+        if(tries >= 4) throw new Error('구글시트 읽기 실패 ('+action+'): '+e.message);
+        return new Promise(function(res){ setTimeout(res, 400*Math.pow(2,tries)); }).then(attempt);
+      });
+  }
+  return attempt();
+}
+
+// ══════════════════════════════════════════════════════════
+//  유틸
+// ══════════════════════════════════════════════════════════
+function pad2(n){ return (n<10?'0':'')+n; }
+function chunk(a,n){ var o=[]; for(var i=0;i<a.length;i+=n) o.push(a.slice(i,i+n)); return o; }
+function monthRange(from, to){
+  var out=[], f=from.split('-').map(Number), t=to.split('-').map(Number);
+  var y=f[0], m=f[1], guard=0;
+  while((y<t[0] || (y===t[0] && m<=t[1])) && guard++ < 400){
+    out.push(y+'-'+pad2(m)); if(++m>12){ m=1; y++; }
+  }
+  return out;
+}
+function pool(items, limit, fn){
+  var out=[], i=0;
+  function worker(){
+    if(i>=items.length) return Promise.resolve();
+    var idx=i++;
+    return Promise.resolve(fn(items[idx], idx)).then(function(v){ out[idx]=v; return worker(); });
+  }
+  var ws=[]; for(var k=0;k<Math.min(limit, items.length);k++) ws.push(worker());
+  return Promise.all(ws).then(function(){ return out; });
+}
+
+var TOKEN = '';
+function busy(on){
+  ['login-btn','dry-btn','run-btn'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(on) el.disabled = true;
+    else if(id==='login-btn') el.disabled = false;
+    else el.disabled = !TOKEN;
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+//  로그인
+// ══════════════════════════════════════════════════════════
+function login(){
+  var pin = document.getElementById('pin').value.trim();
+  var errEl = document.getElementById('login-err');
+  show(errEl, false);
+  if(!pin) return;
+  busy(true);
+  rpc('login', {p_pin:pin}).then(function(res){
+    if(res && res.token && res.role === 'super'){
+      TOKEN = res.token;
+      document.getElementById('login-state').textContent = '슈퍼관리자로 로그인됨';
+      document.getElementById('pin').value = '';
+      busy(false);
+    } else if(res && res.token){
+      errEl.textContent = '이관은 슈퍼관리자만 할 수 있습니다. (현재: '+res.role+')';
+      show(errEl, true); busy(false);
+    } else {
+      errEl.textContent = 'PIN이 올바르지 않습니다.';
+      show(errEl, true); busy(false);
+    }
+  }).catch(function(e){
+    errEl.textContent = e.message;
+    show(errEl, true); busy(false);
+  });
+}
+document.getElementById('login-btn').addEventListener('click', login);
+document.getElementById('pin').addEventListener('keydown', function(e){ if(e.key==='Enter') login(); });
+
+// ══════════════════════════════════════════════════════════
+//  이관 본체
+// ══════════════════════════════════════════════════════════
+function migrate(dry){
+  busy(true);
+  logEl.innerHTML = '';
+  show(document.getElementById('tbl'), false);
+  show(document.getElementById('done-msg'), false);
+  document.getElementById('tbody').innerHTML = '';
+
+  var FROM = '2024-01';
+  var TO = (new Date().getFullYear()+1)+'-12';
+  var counts = {};
+
+  logLine(dry ? '확인만 합니다 — 아무것도 저장하지 않습니다.' : '이관을 시작합니다.',
+          dry ? 'lg-wn' : 'lg-hd');
+
+  // ── 0. 스키마 확인 ──
+  head('0. 데이터베이스 확인');
+  return sb('annual_types?select=key').then(function(types){
+    if(!types || !types.length) fail('연차 종류가 비어 있습니다. schema.sql 을 먼저 실행해주세요.');
+    ok('연결됨 · 연차 종류 '+types.length+'개');
+    var known = {}; types.forEach(function(t){ known[t.key]=1; });
+
+    // ── 1. 직원 ──
+    head('1. 직원');
+    return gas('getEmployees').then(function(r){
+      var src = r.employees || [];
+      ok('구글시트에서 '+src.length+'명 읽음');
+
+      var rows = src.map(function(e){
+        var retired = !!e.retired;
+        var name = String(e.name||'').replace(/^\(퇴\)\s*/, '').trim();
+        var color = /^#[0-9A-Fa-f]{6}$/.test(e.color||'') ? e.color : '#3B6FE8';
+        var retiredAt = null;
+        if(retired){
+          var m = String(e.retiredAt||'').match(/\d{4}-\d{2}-\d{2}/);
+          retiredAt = m ? m[0] : null;
+        }
+        return {legacy_id:String(e.id), name:name, team:String(e.team||'').trim(),
+                color:color, retired:retired, retired_at:retiredAt};
+      }).filter(function(x){ return x.name; });
+
+      var dropped = src.length - rows.length;
+      if(dropped) warn('이름이 비어 있어 건너뛴 직원 '+dropped+'명');
+      var renamed = src.filter(function(e){ return /^\(퇴\)/.test(String(e.name||'')); }).length;
+      if(renamed) ok('이름 앞의 "(퇴)" 제거 '+renamed+'건 (퇴사 표시로 대체)');
+      counts.emp = rows.length;
+
+      var p = dry ? Promise.resolve()
+                  : rpc('import_employees', {p_token:TOKEN, p_rows:rows})
+                      .then(function(){ ok('직원 '+rows.length+'명 저장'); });
+
+      return p.then(function(){
+        // legacy_id → uuid
+        if(dry){
+          var fake = {}; rows.forEach(function(r2){ fake[r2.legacy_id]='dry'; });
+          return fake;
+        }
+        return sb('employees?select=id,legacy_id&legacy_id=not.is.null').then(function(list){
+          var map = {}; list.forEach(function(e){ map[e.legacy_id]=e.id; });
+          ok('직원 id 연결 '+Object.keys(map).length+'건');
+          return map;
+        });
+      }).then(function(idMap){
+
+        // ── 2. 연차 ──
+        head('2. 연차 / 휴일근무');
+        var months = monthRange(FROM, TO);
+        dim(months.length+'개월 조회 중… 구글시트가 느려 1~2분 걸립니다');
+        var done = 0;
+        return pool(months, 4, function(ym){
+          return gas('getAnnuals', {ym:ym}).then(function(rr){
+            done++;
+            if(done % 12 === 0) dim('  '+done+'/'+months.length+'개월');
+            return rr.annuals || [];
+          });
+        }).then(function(per){
+          var all = [].concat.apply([], per);
+          ok('구글시트에서 연차 '+all.length+'건 읽음');
+
+          var unknown = [];
+          all.forEach(function(a){
+            if(a.type && !known[a.type] && unknown.indexOf(a.type)<0) unknown.push(a.type);
+          });
+          var tp = Promise.resolve();
+          if(unknown.length){
+            warn('종류 목록에 없는 유형 '+unknown.length+'종: '+unknown.join(', '));
+            warn('버리지 않고 추가합니다. 색상은 나중에 조정할 수 있습니다.');
+            if(!dry){
+              tp = rpc('import_annual_types', {p_token:TOKEN, p_rows:unknown.map(function(k,i){
+                return {key:k, label:k, css_class:'cc-an', weekend_only:false, sort_order:90+i};
+              })});
+            }
+          }
+
+          return tp.then(function(){
+            var linked = {}, orphans = [], noType = 0;
+            all.forEach(function(a){
+              if(!a.type){ noType++; return; }
+              var uuid = idMap[String(a.empId)];
+              var nm = String(a.empName||'').replace(/^\(퇴\)\s*/, '').trim();
+              if(uuid) linked[uuid+'|'+a.date] = {emp_id:uuid, emp_name:nm, date:a.date, type:a.type};
+              else orphans.push({emp_name:nm, date:a.date, type:a.type});
+            });
+            var linkedArr = Object.keys(linked).map(function(k){ return linked[k]; });
+            var dupes = all.length - noType - orphans.length - linkedArr.length;
+            if(noType) warn('종류가 비어 있어 건너뛴 연차 '+noType+'건');
+            if(dupes > 0) warn('같은 직원·날짜 중복 '+dupes+'건을 1건으로 정리');
+            ok('직원과 연결 '+linkedArr.length+'건'+(orphans.length ? ' / 삭제된 직원의 기록 '+orphans.length+'건' : ''));
+            counts.ann = linkedArr.length + orphans.length;
+
+            if(dry) return;
+            var seq = Promise.resolve();
+            chunk(linkedArr, 400).forEach(function(part){
+              seq = seq.then(function(){ return rpc('import_annuals', {p_token:TOKEN, p_rows:part}); });
+            });
+            return seq.then(function(){
+              ok('연차 '+linkedArr.length+'건 저장');
+              if(!orphans.length) return;
+              var s2 = Promise.resolve();
+              chunk(orphans, 400).forEach(function(part){
+                s2 = s2.then(function(){ return rpc('import_orphan_annuals', {p_token:TOKEN, p_rows:part}); });
+              });
+              return s2.then(function(){ ok('삭제된 직원의 연차 처리 완료'); });
+            });
+          });
+        });
+      });
+    });
+  }).then(function(){
+    // ── 3. 공지 ──
+    head('3. 연차 공지');
+    return gas('getCalNotice').then(function(r){
+      var notice = r.notice || '';
+      ok(notice.trim() ? '"'+notice.slice(0,40).replace(/\n/g,' ')+'…"' : '(비어 있음)');
+      if(dry) return;
+      return rpc('import_notice', {p_token:TOKEN, p_notice:notice}).then(function(){ ok('공지 저장'); });
+    });
+  }).then(function(){
+    // ── 4. 변경이력 ──
+    head('4. 변경이력');
+    return gas('getChangeLogs', {days:36500}).then(function(r){
+      var logs = (r.logs||[]).filter(function(l){ return l && l.desc; });
+      ok('구글시트에서 '+logs.length+'건 읽음');
+      counts.log = logs.length;
+      if(dry) return;
+      var unreadable = 0;
+      var rows = logs.map(function(l){
+        var m = String(l.dt||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+        // 시트의 시각은 한국시간이다.
+        // 읽을 수 없으면 실행할 때마다 값이 달라지지 않도록 고정값을 쓴다
+        // (now()를 쓰면 다시 실행할 때 같은 줄이 또 쌓인다)
+        if(!m) unreadable++;
+        var at = m ? (m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':'+m[6]+'+09:00')
+                   : '1970-01-01T00:00:00+00:00';
+        return {at:at, actor:String(l.by||''), description:String(l.desc)};
+      });
+      if(unreadable) warn('날짜를 읽을 수 없는 이력 '+unreadable+'건은 1970-01-01로 기록합니다');
+      var seq = Promise.resolve(), added = 0;
+      chunk(rows, 400).forEach(function(part){
+        seq = seq.then(function(){
+          return rpc('import_change_logs', {p_token:TOKEN, p_rows:part, p_replace:false})
+            .then(function(n){ added += (n||0); });
+        });
+      });
+      return seq.then(function(){
+        ok(added === rows.length ? '변경이력 '+added+'건 저장'
+                                 : '변경이력 '+added+'건 추가 (나머지 '+(rows.length-added)+'건은 이미 있음)');
+      });
+    });
+  }).then(function(){
+    // ── 5. 대조 ──
+    head('5. 대조 확인');
+    if(dry){
+      logLine('', '');
+      logLine('확인만 했습니다. 저장된 것은 없습니다.', 'lg-wn');
+      logLine('위 건수가 맞으면 3단계 "이관 실행"을 누르세요.', 'lg-wn');
+      renderTable(counts, null);
+      busy(false);
+      return;
+    }
+    return Promise.all([count('employees'), count('annuals'), count('change_logs')])
+      .then(function(db){
+        renderTable(counts, {emp:db[0], ann:db[1], log:db[2]});
+        var allOk = db[0] >= counts.emp && db[1] >= counts.ann;
+        var msg = document.getElementById('done-msg');
+        msg.className = 'al done on ' + (allOk ? 'al-ok' : 'al-wn');
+        msg.textContent = allOk
+          ? '이관이 끝났습니다. 이 화면의 표를 그대로 알려주세요.'
+          : '건수가 맞지 않습니다. 이 화면을 그대로 캡처해서 알려주세요.';
+        logLine('', '');
+        logLine(allOk ? '이관 완료.' : '건수 불일치 — 확인이 필요합니다.', allOk?'lg-ok':'lg-wn');
+        busy(false);
+      });
+  }).catch(function(e){
+    logLine('', '');
+    logLine('✗ '+e.message, 'lg-er');
+    busy(false);
+  });
+}
+
+// 건수 세기. HEAD + content-range 가 가장 가볍지만, 그 헤더를 못 읽는
+// 경우가 있어서 실패하면 id만 받아와 세는 방식으로 되돌아간다.
+function count(table){
+  return fetch(SUPABASE_URL+'/rest/v1/'+table+'?select=*', {
+    method:'HEAD', headers: Object.assign(sbHeaders(), {Prefer:'count=exact'})
+  }).then(function(r){
+    var cr = r.headers.get('content-range');
+    var n = cr ? Number(String(cr).split('/')[1]) : NaN;
+    if(!isNaN(n)) return n;
+    throw new Error('no content-range');
+  }).catch(function(){
+    return sb(table+'?select=id').then(function(rows){
+      return Array.isArray(rows) ? rows.length : -1;
+    }).catch(function(){ return -1; });
+  });
+}
+
+function renderTable(src, db){
+  var rows = [['직원', src.emp, db && db.emp], ['연차', src.ann, db && db.ann],
+              ['변경이력', src.log, db && db.log]];
+  document.getElementById('tbody').innerHTML = rows.map(function(r){
+    var dbCell = (db==null) ? '<td class="num">-</td>' : '<td class="num">'+r[2]+'</td>';
+    var mark = (db==null) ? '<td style="color:var(--tm)">확인 전</td>'
+      : (r[2] >= r[1] ? '<td class="ok-badge">일치</td>' : '<td class="bad-badge">확인 필요</td>');
+    return '<tr><td>'+r[0]+'</td><td class="num">'+r[1]+'</td>'+dbCell+mark+'</tr>';
+  }).join('');
+  show(document.getElementById('tbl'), true);
+}
+
+document.getElementById('dry-btn').addEventListener('click', function(){ migrate(true); });
+document.getElementById('run-btn').addEventListener('click', function(){
+  if(!confirm('구글시트 데이터를 Supabase로 옮깁니다.\n\n여러 번 실행해도 중복이 생기지 않습니다.\n진행할까요?')) return;
+  migrate(false);
+});
+</script>
+</body>
+</html>
