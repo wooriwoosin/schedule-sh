@@ -153,12 +153,14 @@ insert into public.annual_types (key, label, css_class, weekend_only, sort_order
   ('0.75차(17시출근)',  '0.75차(17시출근)',   'cc-h75pm',  false,  5),
   ('오전반반차',        '오전반반차',         'cc-hham',   false,  6),
   ('오후반반차',        '오후반반차',         'cc-hhpm',   false,  7),
-  ('휴일근무',          '휴일근무',           'cc-hw',     true,   8),
-  ('공가(예비군)',      '공가(예비군)',       'cc-gg',     false,  9),
-  ('조퇴',              '조퇴',               'cc-jt',     false, 10),
-  ('지각',              '지각',               'cc-jg',     false, 11),
-  ('병가',              '병가',               'cc-bg',     false, 12),
-  ('무단결근',          '무단결근',           'cc-mg',     false, 13)
+  ('중간반차(4시간)',   '중간반차(4시간)',    'cc-jb4',    false,  8),
+  ('중간반차(2시간)',   '중간반차(2시간)',    'cc-jb2',    false,  9),
+  ('휴일근무',          '휴일근무',           'cc-hw',     true,  10),
+  ('공가(예비군)',      '공가(예비군)',       'cc-gg',     false, 11),
+  ('조퇴',              '조퇴',               'cc-jt',     false, 12),
+  ('지각',              '지각',               'cc-jg',     false, 13),
+  ('병가',              '병가',               'cc-bg',     false, 14),
+  ('무단결근',          '무단결근',           'cc-mg',     false, 15)
 on conflict (key) do update
   set label = excluded.label,
       css_class = excluded.css_class,
